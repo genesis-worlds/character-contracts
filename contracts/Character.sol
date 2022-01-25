@@ -122,13 +122,78 @@ contract Character is ERC721, AccessControl {
         }
     }
 
-    function getAttributes(uint256 tokenId) external pure returns (uint256 class, uint256 trait1, uint256 trait2, uint256 trait3) {
-        // uint256 range = keccak32(tokenId);
+    // These attributes only cover the top-level attributes (which are each 0-6). To get the next level (specializations), you have to take the next 256 chars of the 
+    // Level comes from the first byte (above)
+    // Traits come frome the second byte; there’s 7*6*5=210 combinations, which fits
+    function getAttributes(uint256 tokenId) external pure returns (uint256 class, uint256 subclass, uint256 trait1, uint256 trait2, uint256 trait3) {
+        return getAttributesFromHash(uint256(keccak256(abi.encode(tokenId))));
     }
 
-    function getStats(uint256 tokenId) external view returns (uint256[6] memory stats) {
-        // (uint256 level, uint256 class, uint256 trait1, uint256 trait2, uint256 trait3) = getAttributes(tokenId);
-        // uint256 level = getLevel(tokenId);
+    function getAttributesFromHash(uint256 hash) public pure returns (uint256 class, uint256 subclass, uint256 trait1, uint256 trait2, uint256 trait3) {
+        uint256 tokenIdHash = hash << 8;
+        // This should generate 3 unique stats, roughly evenly distributed,
+        // with no more than one from each of 7 groups.
+        // The first byte gave level
+        // The second byte gives the three traits.
+        // The third byte would give the ability within each trait (not calced here)
+        trait1 = tokenIdHash % 7; // 0-2 are slightly over-represented
+        trait2 = tokenIdHash % 6; // 0-2 are slightly over-represented; 3 less so
+        trait2 = trait2 == trait1 ? 7 : trait2;
+        trait3 = tokenIdHash % 5; // 0 is slightly over-represented; 1 less so
+        trait3 = trait3 == trait1 ? 7 : trait3 == trait2 ? 6 : trait3;
+
+        // This generates a number from 0-20, representing the class of the token.
+        // Classes come in three levels of rarity. They’re independent from traits.
+        // Classes 0, 7, and 14 are the common, rare, and legendary classes for a single trait
+        // The fourth byte is the class, the fifth byte is the subclass
+        uint256 classRandom = tokenIdHash << 24;
+        class = classRandom % 7; // 0-2 are slightly over-represented
+
+        uint256 subClassRandom = tokenIdHash << 32;
+        subclass = subClassRandom % 6;
+        subclass = subclass == class ? 7 : subclass;
+
+        classRandom = classRandom % 16;
+        class = class + classRandom == 15 ? 14 : classRandom > 10 ? 7 : classRandom;
+
+        subClassRandom = subClassRandom % 16;
+        subclass = subclass + subClassRandom == 15 ? 14 : subClassRandom > 10 ? 7 : subClassRandom;
+    }
+
+    // Bytes 6 through 15 of the token hash generate the 7 stats (one mapped to each trait), two for trait bonuses;
+    // The highest a stat can go is 232 (100 for level, 69 from the random roll, 19 from class, 13 from subclass, and 31 from primary stat)
+    // This generates stats from 7 to 70 at 1st level + a max of 31 for the top stat, and  22 for next, 10 for third
+    // Stats of 26 to 89 at 20th
+    // Stats of 106 to 169 at 100th, + 46 = 215 absolute maximum
+    function getStats(uint256 tokenId) external view returns (uint256[7] memory stats) {
+        uint256 tokenIdHash = uint256(keccak256(abi.encode(tokenId)));
+        (uint256 class, uint256 subclass, uint256 trait1, uint256 trait2, uint256 trait3) = getAttributesFromHash(tokenIdHash); 
+        uint256 hash = tokenIdHash << 40;
+        uint256 level = getLevel(tokenId);
+        if(level > 100) {
+            level = 100;
+        }
+
+        // Sets the stat based on the level and a random roll
+        for(uint256 i = 0; i < 7; i++) {
+            uint256 stat = hash << (i * 8) % 256;
+            if(stat < 64) {
+            stats[i] = 6 + stat + level;
+            } else if (stat < 128) {
+            stats[i] = 6 + stat % 32 + level;
+            } else {
+            stats[i] = 6 + stat % 16 + level;
+            }
+        }
+        
+        // This adds the bonuses to the stat, based on the character’s traits
+        hash = tokenIdHash << 96 % 256;
+        stats[class % 7 + 1] += hash % 19;
+        stats[subclass % 7 + 1] += hash % 13;
+        hash = tokenIdHash << 104 % 256;
+        stats[trait1 - 1] += hash % 31;
+        stats[trait2 - 1] += hash % 23;
+        stats[trait3 - 1] += hash % 11;
     }
 
     // Checks whether:
@@ -160,13 +225,5 @@ contract Character is ERC721, AccessControl {
         require(claimedAirdrops[tokenId][airdropCode] == address(0), "airdrop already claimed by this character");
         claimedAirdrops[tokenId][airdropCode] = ownerOf(tokenId);
         emit AirdropClaimed(msg.sender, airdropId, tokenId, ownerOf(tokenId));
-    }
-
-    function _beforeTokenTransfer(
-        address from,
-        address to,
-        uint256 tokenId
-    ) internal override {
-        super._beforeTokenTransfer(from, to, tokenId);
     }
 }
