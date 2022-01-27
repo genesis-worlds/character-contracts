@@ -18,6 +18,9 @@ contract Character is ERC721, AccessControl {
     /// @notice Total supply
     uint256 public totalSupply;
 
+    /// @notice Base URI
+    string public baseURI;
+
     // @notice Level of tokens
     mapping(uint256 => uint256) tokenLevel;
 
@@ -55,8 +58,12 @@ contract Character is ERC721, AccessControl {
     }
 
     /**
-     * @dev Sets the baseURI for {tokenURI}
+     * @dev Sets base uri
      */
+    function setBaseURI(string memory baseURI_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        baseURI = baseURI_;
+    }
+
     function distributeTokens(address[] memory recipients) external onlyRole(DEFAULT_ADMIN_ROLE) {
         uint256 tokenId = totalSupply;
         for(uint256 i = 0; i < recipients.length; i++) {
@@ -75,13 +82,13 @@ contract Character is ERC721, AccessControl {
 
     function levelUp(uint256 tokenId) external {
         uint256 newLevel = getLevel(tokenId) + 1;
-        genesisContract.transferFrom(_msgSender(), feeReceiver, 10 * newLevel);
+        genesisContract.transferFrom(_msgSender(), feeReceiver, 10 * newLevel * 10 ** 18);
         tokenLevel[tokenId] = newLevel;
         emit LevelUp(tokenId, newLevel);
     }
 
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
-        return string(abi.encodePacked(_baseURI(), "/", tokenId, "/", getLevel(tokenId)));
+        return string(abi.encodePacked(baseURI, "/", tokenId, "/", getLevel(tokenId)));
     }
 
     function getLevel(uint256 tokenId) public view returns (uint256 level) {
