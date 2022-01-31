@@ -74,38 +74,28 @@ contract Character is ERC721, AccessControl {
         baseURI = baseURI_;
     }
 
-    function distributeTokens(address[] memory recipients) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        uint256 tokenId = totalSupply;
-        for(uint256 i = 0; i < recipients.length; i++) {
-            tokenId++;
-            _mint(recipients[i], tokenId);
-        }
-        totalSupply = tokenId;
-    }
-
     function buyNft() external {
         genesisContract.transferFrom(_msgSender(), feeReceiver, 100 * 10 ** 18);
         uint256 tokenId = totalSupply + 1;
         _mint(_msgSender(), tokenId);
+        uint256 newLevel = _getStartingLevel(tokenId);
+        tokenLevel[tokenId] = newLevel;
+        emit LevelUp(tokenId, newLevel);
         totalSupply = tokenId;
     }
 
     function levelUp(uint256 tokenId) external {
-        uint256 newLevel = getLevel(tokenId) + 1;
+        uint256 newLevel = tokenLevel[tokenId] + 1;
         genesisContract.transferFrom(_msgSender(), feeReceiver, 10 * newLevel * 10 ** 18);
         tokenLevel[tokenId] = newLevel;
         emit LevelUp(tokenId, newLevel);
     }
 
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
-        return string(abi.encodePacked(baseURI, "/", tokenId, "/", getLevel(tokenId)));
+        return string(abi.encodePacked(baseURI, "/", tokenId, "/", tokenLevel[tokenId]));
     }
 
-    function getLevel(uint256 tokenId) public view returns (uint256 level) {
-        level = tokenLevel[tokenId];
-        if (level > 0) {
-            return level;
-        }
+    function _getStartingLevel(uint256 tokenId) internal pure returns (uint256 level) {
         uint256 bonus = 0;
         if (tokenId <= 8192) {
             bonus = 14;
@@ -186,7 +176,7 @@ contract Character is ERC721, AccessControl {
         uint256 tokenIdHash = uint256(keccak256(abi.encode(tokenId)));
         (uint256 class, uint256 subclass, uint256 trait1, uint256 trait2, uint256 trait3) = getAttributesFromHash(tokenIdHash); 
         uint256 hash = tokenIdHash << 40;
-        uint256 level = getLevel(tokenId);
+        uint256 level = tokenLevel[tokenId];
         if(level > 100) {
             level = 100;
         }
