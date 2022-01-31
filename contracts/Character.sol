@@ -24,12 +24,6 @@ contract Character is ERC721, AccessControl {
     // @notice Level of tokens
     mapping(uint256 => uint256) tokenLevel;
 
-    /// @notice Airdrop amount
-    mapping(uint256 => mapping(uint256 => address)) public claimedAirdrops;
-
-    /// @notice Emitted when airdrop is claimed
-    event AirdropClaimed(address indexed airdropContract, uint256 airdropId, uint256 tokenId, address indexed recipient);
-
     /// @notice Emitted level is up
     event LevelUp(uint256 tokenId, uint256 newLevel);
 
@@ -201,36 +195,5 @@ contract Character is ERC721, AccessControl {
         stats[trait1 - 1] += hash % 31;
         stats[trait2 - 1] += hash % 23;
         stats[trait3 - 1] += hash % 11;
-    }
-
-    // Checks whether:
-    //   (a) the token is owned by the user (if tokenOwner isn’t provided, it skips this check)
-    //   (b) the airdropId is a uint48 (so it can be combined with an address)
-    //   (c) the token has claimed that airdrop
-    function checkAirdrop(address airdropContract, uint256 airdropId, uint256 tokenId, address recipient) external view returns(bool) {
-        uint64 shortAirdropId = uint64(airdropId);
-        if(ownerOf(tokenId) != address(0) && ownerOf(tokenId) != recipient) {
-            return false;
-        }
-        if(uint256(shortAirdropId) != airdropId) {
-            return false;
-        }
-        uint256 airdropCode = airdropId << 192 + uint256(uint160(_msgSender()));
-        return claimedAirdrops[tokenId][airdropCode] == address(0);
-    }
-
-    // This is designed to receive airdrop requests from a specific contract
-    // It reverts in all cases where the airdrop is invalid
-    // It can only be called from the contract code
-    // Recipient must be the owner of the token
-    // The token (not the user) must not have received that airdrop
-    function claimAirdrop(uint256 airdropId, uint256 tokenId, address recipient) external {
-        require(recipient != address(0) && ownerOf(tokenId) == recipient, "token owner not valid");
-        uint64 shortAirdropId = uint64(airdropId);
-        require(uint256(shortAirdropId) == airdropId, "airdropId overflow");
-        uint256 airdropCode = airdropId << 192 + uint256(uint160(_msgSender()));
-        require(claimedAirdrops[tokenId][airdropCode] == address(0), "airdrop already claimed by this character");
-        claimedAirdrops[tokenId][airdropCode] = ownerOf(tokenId);
-        emit AirdropClaimed(msg.sender, airdropId, tokenId, ownerOf(tokenId));
     }
 }
