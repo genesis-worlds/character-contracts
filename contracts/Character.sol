@@ -6,11 +6,19 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
 import "./interfaces/IGenesis.sol";
+import "./interfaces/IGAME_ERC20.sol";
+import "./interfaces/IUniswapV2Router02.sol";
 
 contract Character is ERC721, AccessControl {
     
     // The genesis contract address
     IGenesis genesisContract;
+
+    // The GAME contract address
+    IGAME_ERC20 gameContract;
+
+    // The uniswap router
+    IUniswapV2Router02 public uniswapRouter;
 
     /// @notice Receiver address to receive fees
     address public feeReceiver;
@@ -27,8 +35,9 @@ contract Character is ERC721, AccessControl {
     /// @notice Emitted level is up
     event LevelUp(uint256 tokenId, uint256 newLevel);
 
-    constructor(string memory name_, string memory symbol_, address genesisContract_, address feeReceiver_) ERC721(name_, symbol_) {
+    constructor(string memory name_, string memory symbol_, address gameContract_, address genesisContract_, address feeReceiver_) ERC721(name_, symbol_) {
         genesisContract = IGenesis(genesisContract_);
+        gameContract = IGAME_ERC20(gameContract_);
         feeReceiver = feeReceiver_;
 
         _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
@@ -42,6 +51,13 @@ contract Character is ERC721, AccessControl {
             interfaceId == type(IERC721).interfaceId ||
             interfaceId == type(IERC721Metadata).interfaceId ||
             super.supportsInterface(interfaceId);
+    }
+
+    /**
+     * @dev Sets uniswap router
+     */
+    function setUniswapRouter(address uniswapRouter_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        uniswapRouter = IUniswapV2Router02(uniswapRouter_);
     }
 
     /**
