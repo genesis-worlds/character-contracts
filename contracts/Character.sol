@@ -2,14 +2,14 @@
 
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
 import "./interfaces/IGenesis.sol";
 import "./interfaces/IGAME_ERC20.sol";
 import "./interfaces/IUniswapV2Router02.sol";
 
-contract Character is ERC721, AccessControl {
+contract Character is ERC721Enumerable, AccessControl {
     
     // The genesis contract address
     IGenesis genesisContract;
@@ -22,9 +22,6 @@ contract Character is ERC721, AccessControl {
 
     /// @notice Receiver address to receive fees
     address public feeReceiver;
-
-    /// @notice Total supply
-    uint256 public totalSupply;
 
     /// @notice Base URI
     string public baseURI;
@@ -46,7 +43,7 @@ contract Character is ERC721, AccessControl {
     /**
      * @dev See {IERC165-supportsInterface}.
      */
-    function supportsInterface(bytes4 interfaceId) public view  override(ERC721, AccessControl) returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view  override(ERC721Enumerable, AccessControl) returns (bool) {
         return
             interfaceId == type(IERC721).interfaceId ||
             interfaceId == type(IERC721Metadata).interfaceId ||
@@ -74,15 +71,28 @@ contract Character is ERC721, AccessControl {
         baseURI = baseURI_;
     }
 
-    function buyNft() external {
-        genesisContract.transferFrom(_msgSender(), feeReceiver, 100 * 10 ** 18);
-        uint256 tokenId = totalSupply + 1;
+    function _createNft() private {
+        uint256 tokenId = totalSupply() + 1;
         _mint(_msgSender(), tokenId);
         uint256 newLevel = _getStartingLevel(tokenId);
         tokenLevel[tokenId] = newLevel;
         emit LevelUp(tokenId, newLevel);
-        totalSupply = tokenId;
     }
+
+    function buyNftWithGAME() external {
+        gameContract.transferByContract(_msgSender(), feeReceiver, 100 * 10 ** 18);
+        _createNft();
+    }
+
+    function buyNftWithGENESIS() external {
+        genesisContract.transferFrom(_msgSender(), feeReceiver, 100 * 10 ** 18);
+        _createNft();
+    }
+
+    // function buyNftWithMATIC() external {
+    //     gameContract.transferByContract(_msgSender(), feeReceiver, 100 * 10 ** 18);
+    //     _createNft();
+    // }
 
     function levelUp(uint256 tokenId) external {
         uint256 newLevel = tokenLevel[tokenId] + 1;
