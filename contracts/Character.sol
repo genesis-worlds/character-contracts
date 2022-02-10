@@ -89,10 +89,21 @@ contract Character is ERC721Enumerable, AccessControl {
         _createNft();
     }
 
-    // function buyNftWithMATIC() external {
-    //     gameContract.transferByContract(_msgSender(), feeReceiver, 100 * 10 ** 18);
-    //     _createNft();
-    // }
+    function buyNftwithMatic(address[] calldata path) external payable {
+        require(path.length > 1 && path[path.length - 1] == address(gameContract), "invalid path");
+
+        uint256 price = 100 * 10 ** 18;
+        uint256[] memory amounts = uniswapRouter.swapExactETHForTokens{value: msg.value}(
+            price,
+            path,
+            address(this),
+            block.timestamp + 100
+        );
+        uint256 pricePaid = amounts[amounts.length - 1];
+        require(pricePaid > price, "not enough paid");
+        gameContract.transferByContract(_msgSender(), feeReceiver, pricePaid);
+        _createNft();
+    }
 
     function levelUp(uint256 tokenId) external {
         uint256 newLevel = tokenLevel[tokenId] + 1;
