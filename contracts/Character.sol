@@ -71,8 +71,19 @@ contract Character is ERC721Enumerable, AccessControl {
         baseURI = baseURI_;
     }
 
-    function _createNft() private {
-        uint256 tokenId = totalSupply() + 1;
+    function getPrice(uint256 tokenId) public pure returns (uint256) {
+        if (tokenId <= 10000) {
+            return 1000;
+        } else if (tokenId <= 40000) {
+            return 250;
+        } else if (tokenId <= 100000) {
+            return 100;
+        } else {
+            return 25;
+        }
+    }
+
+    function _createNft(uint256 tokenId) private {
         _mint(_msgSender(), tokenId);
         uint256 newLevel = _getStartingLevel(tokenId);
         tokenLevel[tokenId] = newLevel;
@@ -80,19 +91,22 @@ contract Character is ERC721Enumerable, AccessControl {
     }
 
     function buyNftWithGAME() external {
-        gameContract.transferByContract(_msgSender(), feeReceiver, 100 * 10 ** 18);
-        _createNft();
+        uint256 tokenId = totalSupply() + 1;
+        gameContract.transferByContract(_msgSender(), feeReceiver, getPrice(tokenId) * 10 ** 18);
+        _createNft(tokenId);
     }
 
     function buyNftWithGENESIS() external {
-        genesisContract.transferFrom(_msgSender(), feeReceiver, 100 * 10 ** 18);
-        _createNft();
+        uint256 tokenId = totalSupply() + 1;
+        genesisContract.transferFrom(_msgSender(), feeReceiver, getPrice(tokenId) * 10 ** 18);
+        _createNft(tokenId);
     }
 
     function buyNftwithMatic(address[] calldata path) external payable {
         require(path.length > 1 && path[path.length - 1] == address(gameContract), "invalid path");
 
-        uint256 price = 100 * 10 ** 18;
+        uint256 tokenId = totalSupply() + 1;
+        uint256 price = getPrice(tokenId) * 10 ** 18;
         uint256[] memory amounts = uniswapRouter.swapExactETHForTokens{value: msg.value}(
             price,
             path,
@@ -102,7 +116,7 @@ contract Character is ERC721Enumerable, AccessControl {
         uint256 pricePaid = amounts[amounts.length - 1];
         require(pricePaid > price, "not enough paid");
         gameContract.transferByContract(_msgSender(), feeReceiver, pricePaid);
-        _createNft();
+        _createNft(tokenId);
     }
 
     function levelUp(uint256 tokenId) external {
@@ -118,21 +132,13 @@ contract Character is ERC721Enumerable, AccessControl {
 
     function _getStartingLevel(uint256 tokenId) internal pure returns (uint256 level) {
         uint256 bonus = 0;
-        if (tokenId <= 8192) {
+        if (tokenId <= 10000) { // Level 15-20
             bonus = 14;
-        } else if (tokenId <= 16384) {
-            bonus = 12;
-        } else if (tokenId <= 32768) {
-            bonus = 10;
-        } else if (tokenId <= 65536) {
-            bonus = 8;
-        } else if (tokenId <= 131072) {
-            bonus = 6;
-        } else if (tokenId <= 262144) {
+        } else if (tokenId <= 40000) { // Level 10-15
+            bonus = 9;
+        } else if (tokenId <= 100000) { // Level 5-10
             bonus = 4;
-        } else if (tokenId <= 524288) {
-            bonus = 2;
-        }
+        } // Otherwise Level 1-6
 
         uint256 range = uint256(keccak256(abi.encode(tokenId))) % 64;
         if (range < 2) {
