@@ -32,7 +32,7 @@ contract Character is ERC721Enumerable, AccessControl {
     /// @notice Emitted level is up
     event LevelUp(uint256 tokenId, uint256 newLevel);
 
-    constructor(string memory name_, string memory symbol_, address gameContract_, address genesisContract_, address feeReceiver_) ERC721(name_, symbol_) {
+    constructor(address gameContract_, address genesisContract_, address feeReceiver_) ERC721("Genesis Characters", "CHAR") {
         genesisContract = IGenesis(genesisContract_);
         gameContract = IGAME_ERC20(gameContract_);
         feeReceiver = feeReceiver_;
