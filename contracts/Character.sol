@@ -8,8 +8,10 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./interfaces/IGenesis.sol";
 import "./interfaces/IGAME_ERC20.sol";
 import "./interfaces/IUniswapV2Router02.sol";
+import "./interfaces/ILocalContract.sol";
 
-contract Character is ERC721Enumerable, AccessControl {
+
+contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     
     // The genesis contract address
     IGenesis genesisContract;
@@ -27,7 +29,7 @@ contract Character is ERC721Enumerable, AccessControl {
     string public baseURI;
 
     // @notice Level of tokens
-    mapping(uint256 => uint256) tokenLevel;
+    mapping(uint256 => uint256) public tokenLevel;
 
     /// @notice Emitted level is up
     event LevelUp(uint256 tokenId, uint256 newLevel);
@@ -115,7 +117,6 @@ contract Character is ERC721Enumerable, AccessControl {
         );
         uint256 pricePaid = amounts[amounts.length - 1];
         require(pricePaid > price, "not enough paid");
-        gameContract.transferByContract(_msgSender(), feeReceiver, pricePaid);
         _createNft(tokenId);
     }
 
