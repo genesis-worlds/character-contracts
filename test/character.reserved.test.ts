@@ -21,10 +21,6 @@ describe('Character Airdrop', () => {
     let bob: SignerWithAddress;
     let feeReceiver: SignerWithAddress;
 
-    const priceInGenesis = ethers.utils.parseUnits("100", 18);
-    const priceInGame = ethers.utils.parseUnits("1000", 18);
-    const priceInMatic = ethers.utils.parseUnits("1000", 18);
-
     before(async () => {
         [owner, alice, bob, feeReceiver] = await ethers.getSigners();
     });
@@ -33,10 +29,6 @@ describe('Character Airdrop', () => {
         game = <MockToken>await deployContract("mockToken");
         genesis = <MockErc20>await deployContract("MockERC20", "Genesis token", "Gen", totalSupply);
         character = <Character>await deployContract("Character", game.address, genesis.address, feeReceiver.address);
-
-        await character.setPriceInGame(priceInGame);
-        await character.setPriceInGenesis(priceInGenesis);
-        await character.setPriceInMatic(priceInMatic);
 
         await game.transfer(alice.address, totalSupply.div(10));
         await game.transfer(bob.address, totalSupply.div(10));
@@ -61,25 +53,12 @@ describe('Character Airdrop', () => {
             await expect(character.connect(alice).setBaseURI("https://new.base.uri")).to.be.reverted;
             await character.setBaseURI("https://new.base.uri");
         });
-
-        it("setPriceInGenesis", async () => {
-            await expect(character.connect(alice).setPriceInGenesis(10)).to.be.reverted;
-            await character.setPriceInGenesis(10);
-        });
-
-        it("setPriceInGame", async () => {
-            await expect(character.connect(alice).setPriceInGame(10)).to.be.reverted;
-            await character.setPriceInGame(10);
-        });
-
-        it("setPriceInMatic", async () => {
-            await expect(character.connect(alice).setPriceInMatic(10)).to.be.reverted;
-            await character.setPriceInMatic(10);
-        });
     });
 
     describe("buyNFT", () => {
         it("Get one nft using game", async () => {
+            const price = await character.getPrice(1);
+
             await game.connect(alice).approve(character.address, ethers.constants.MaxUint256);
             const nftCount0 = await character.balanceOf(alice.address);
             const balance0 = await game.balanceOf(alice.address);
@@ -87,10 +66,12 @@ describe('Character Airdrop', () => {
             const nftCount1 = await character.balanceOf(alice.address);
             const balance1 = await game.balanceOf(alice.address);
             expect(nftCount1.sub(nftCount0)).to.be.equal(1);
-            expect(balance0.sub(balance1)).to.be.equal(priceInGame);
+            expect(balance0.sub(balance1)).to.be.equal(ethers.utils.parseUnits(price.toString(), 18));
         });
 
         it("Get one nft with GENESIS", async () => {
+            const price = await character.getPrice(1);
+
             await genesis.connect(alice).approve(character.address, ethers.constants.MaxUint256);
             const nftCount0 = await character.balanceOf(alice.address);
             const balance0 = await genesis.balanceOf(alice.address);
@@ -98,18 +79,7 @@ describe('Character Airdrop', () => {
             const nftCount1 = await character.balanceOf(alice.address);
             const balance1 = await genesis.balanceOf(alice.address);
             expect(nftCount1.sub(nftCount0)).to.be.equal(1);
-            expect(balance0.sub(balance1)).to.be.equal(priceInGenesis);
-        });
-
-        it("Get one nft with MATIC", async () => {
-            const nftCount0 = await character.balanceOf(alice.address);
-            const balance0 = await alice.getBalance();
-            const tx = await character.connect(alice).buyNftwithMatic({ value: priceInMatic });
-            const receipt = await tx.wait();
-            const nftCount1 = await character.balanceOf(alice.address);
-            const balance1 = await alice.getBalance();
-            expect(nftCount1.sub(nftCount0)).to.be.equal(1);
-            expect(balance0.sub(balance1)).to.be.equal(priceInMatic.add(receipt.gasUsed.mul(tx.gasPrice)));
+            expect(balance0.sub(balance1)).to.be.equal(ethers.utils.parseUnits(price.toString(), 18));
         });
     });
 

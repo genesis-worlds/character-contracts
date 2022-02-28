@@ -28,6 +28,15 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     /// @notice Base URI
     string public baseURI;
 
+    /// @notice Price in Genesis
+    uint256 public priceInGenesis = 1000 * 10**18;
+
+    /// @notice Price in Game
+    uint256 public priceInGame = 1000 * 10**18;
+
+    /// @notice Price in MATIC
+    uint256 public priceInMatic = 1000 * 10**18;
+
     // @notice Level of tokens
     mapping(uint256 => uint256) public tokenLevel;
 
@@ -73,17 +82,38 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
         baseURI = baseURI_;
     }
 
-    function getPrice(uint256 tokenId) public pure returns (uint256) {
-        if (tokenId <= 10000) {
-            return 1000;
-        } else if (tokenId <= 40000) {
-            return 250;
-        } else if (tokenId <= 100000) {
-            return 100;
-        } else {
-            return 25;
-        }
+    /**
+     * @dev Set price in Genesis
+     */
+    function setPriceInGenesis(uint256 priceInGenesis_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        priceInGenesis = priceInGenesis_;
     }
+
+    /**
+     * @dev Set price in Game
+     */
+    function setPriceInGame(uint256 priceInGame_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        priceInGame = priceInGame_;
+    }
+
+    /**
+     * @dev Set price in MATIC
+     */
+    function setPriceInMatic(uint256 priceInMatic_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        priceInMatic = priceInMatic_;
+    }
+
+    // function getPrice(uint256 tokenId) public pure returns (uint256) {
+    //     if (tokenId <= 10000) {
+    //         return 1000;
+    //     } else if (tokenId <= 40000) {
+    //         return 250;
+    //     } else if (tokenId <= 100000) {
+    //         return 100;
+    //     } else {
+    //         return 25;
+    //     }
+    // }
 
     function _createNft(uint256 tokenId) private {
         _mint(_msgSender(), tokenId);
@@ -94,29 +124,20 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
     function buyNftWithGAME() external {
         uint256 tokenId = totalSupply() + 1;
-        gameContract.transferByContract(_msgSender(), feeReceiver, getPrice(tokenId) * 10 ** 18);
+        gameContract.transferByContract(_msgSender(), feeReceiver, priceInGame);
         _createNft(tokenId);
     }
 
     function buyNftWithGENESIS() external {
         uint256 tokenId = totalSupply() + 1;
-        genesisContract.transferFrom(_msgSender(), feeReceiver, getPrice(tokenId) * 10 ** 18);
+        genesisContract.transferFrom(_msgSender(), feeReceiver, priceInGenesis);
         _createNft(tokenId);
     }
 
-    function buyNftwithMatic(address[] calldata path) external payable {
-        require(path.length > 1 && path[path.length - 1] == address(gameContract), "invalid path");
-
+    function buyNftwithMatic() external payable {
         uint256 tokenId = totalSupply() + 1;
-        uint256 price = getPrice(tokenId) * 10 ** 18;
-        uint256[] memory amounts = uniswapRouter.swapExactETHForTokens{value: msg.value}(
-            price,
-            path,
-            address(this),
-            block.timestamp + 100
-        );
-        uint256 pricePaid = amounts[amounts.length - 1];
-        require(pricePaid > price, "not enough paid");
+        require(msg.value >= priceInMatic, "not enough paid");
+        payable(feeReceiver).transfer(priceInMatic);
         _createNft(tokenId);
     }
 
