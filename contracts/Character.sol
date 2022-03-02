@@ -12,7 +12,11 @@ import "./interfaces/ILocalContract.sol";
 
 
 contract Character is ERC721Enumerable, AccessControl, ILocalContract {
-    
+    bytes32 public constant APPROVED_CONTRACT = keccak256("APPROVED_CONTRACT");
+
+    // Doing a bitwise and between this and a stat line should keep everything but the stats
+    uint256 STAT_MASK = 0xfffffffFfffffffFfffffffFfffffffFfffffffFfffffffFff00000000000000;     
+
     // The genesis contract address
     IGenesis genesisContract;
 
@@ -37,11 +41,34 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     /// @notice Price in MATIC
     uint256 public priceInMatic = 1000 * 10**18;
 
+    /// @notice cost to level up
+    uint256 public cost;
+
+    /// @notice Genesis multiplier
+    uint256 public genesisPriceMultiplier;
+
+    /// @notice Game multiplier
+    uint256 public gamePriceMultiplier;
+
+    /// @notice Matic multiplier
+    uint256 public maticPriceMultiplier;
+
     // @notice Level of tokens
     mapping(uint256 => uint256) public tokenLevel;
 
+    // @notice Level of tokens
+    mapping(uint256 => uint256) public tokenStats;
+
     /// @notice Emitted level is up
     event LevelUp(uint256 tokenId, uint256 newLevel);
+
+    /// @notice Emitted level is up
+    event TokenStats(uint256 tokenId, uint256 input);
+
+    modifier onlyTrustedContract {
+        require(hasRole(APPROVED_CONTRACT, _msgSender()), "Not trusted contract");
+        _;
+    }
 
     constructor(address gameContract_, address genesisContract_, address feeReceiver_) ERC721("Genesis Characters", "CHAR") {
         genesisContract = IGenesis(genesisContract_);
@@ -103,6 +130,34 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
         priceInMatic = priceInMatic_;
     }
 
+    /**
+     * @dev Set cost to level up
+     */
+    function setCost(uint256 cost_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        cost = cost_;
+    }
+
+    /**
+     * @dev Set Game price multiplier
+     */
+    function setGamePriceMultiplier(uint256 gamePriceMultiplier_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        gamePriceMultiplier = gamePriceMultiplier_;
+    }
+
+    /**
+     * @dev Set Genesis price multiplier
+     */
+    function setGenesisPriceMutliplier(uint256 genesisPriceMultiplier_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        genesisPriceMultiplier = genesisPriceMultiplier_;
+    }
+
+    /**
+     * @dev Set MATIC price mutliplier
+     */
+    function setMaticPriceMutliplier(uint256 maticPriceMultiplier_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        maticPriceMultiplier = maticPriceMultiplier_;
+    }
+
     // function getPrice(uint256 tokenId) public pure returns (uint256) {
     //     if (tokenId <= 10000) {
     //         return 1000;
@@ -139,6 +194,107 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
         require(msg.value >= priceInMatic, "not enough paid");
         payable(feeReceiver).transfer(priceInMatic);
         _createNft(tokenId);
+    }
+
+    // The test for this function is to take a stat line (or several)
+    // Note that this does not SAVE the stats; it just updates them.
+    function increaseStats(uint256 input, uint256[7] memory statIncreases) public view returns(uint256 output) {
+        output = input & STAT_MASK;
+        for(uint256 i = 0; i < 7; i++) {
+            uint256 shift = 16 * i;
+            uint256 newStat = uint256(uint16(input >> shift)) + statIncreases[i];
+            if(newStat >= 32768) {
+                newStat = 32767;
+            }
+            output = output & (newStat << shift);
+        }
+    }
+
+    function decreaseStats(uint256 input, uint256[7] memory statDecreases) public view returns(uint256 output) {
+        output = input & STAT_MASK;
+        for(uint256 i = 0; i < 7; i++) {
+            uint256 shift = 16 * i;
+            // Don’t use safemath here; if we underflow, we need to reset to 0.
+            uint256 newStat = uint256(uint16(input << 16 * i)) - statDecreases[i];
+            if(newStat >= 32768) {
+                newStat = 0;
+            }
+            output = output & (newStat << shift);
+        }
+    }
+
+    function getTraits(uint256 input) public pure returns(uint256[7] memory traits) {
+        traits[0] = uint256(uint8(input >> 128)); // Trait A
+        traits[1] = uint256(uint8(input >> 136)); // Trait B
+        traits[2] = uint256(uint8(input >> 144)); // Trait C
+        traits[3] = uint256(uint8(input >> 152)); // Specialization A
+        traits[4] = uint256(uint8(input >> 160)); // Specialization B
+        traits[5] = uint256(uint8(input >> 168)); // Specialization C
+        traits[6] = uint256(uint8(input >> 176)); // Class
+    }
+
+    function getStats(uint256 input) public pure returns(uint256[7] memory stats) {
+        stats[0] = uint256(uint16(input)); // Strength
+        stats[1] = uint256(uint16(input >> 16)); // Speed
+        stats[2] = uint256(uint16(input >> 32)); // Defense
+        stats[3] = uint256(uint16(input >> 48)); // Body
+        stats[4] = uint256(uint16(input >> 64)); // Mind
+        stats[5] = uint256(uint16(input >> 80)); // Tech
+        stats[6] = uint256(uint16(input >> 96)); // Magic
+    }
+
+    function getLevel(uint256 input) public pure returns(uint256 level) {
+        level = uint256(uint16(input >> 112));
+    }
+
+    function levelUpWithPermission(uint256 tokenId, uint256 levels, uint256[7] calldata stats) external onlyTrustedContract returns(uint256 cost) {
+        cost = completeLevelUp(tokenId, levels, stats);
+    }
+
+    function setStatsWithPermission(uint256 tokenId, uint256 newStats) external onlyTrustedContract returns(uint256 cost) {
+        tokenStats[tokenId] = newStats;
+        emit TokenStats(tokenId, newStats);
+    }
+
+    function levelUpWithGAME(uint256 expectedSpend, uint256 tokenId, uint256 levels, uint256[7] calldata stats) external {
+        address sender = _msgSender();
+        uint256 baseCost = completeLevelUp(tokenId, levels, stats);
+        uint256 cost = cost * gamePriceMultiplier;
+        require(expectedSpend == cost, "GAME paid is incorrect");
+        gameContract.transferByContract(sender, feeReceiver, baseCost);
+    }
+
+    function levelUpWithGENESIS(uint256 expectedSpend, uint256 tokenId, uint256 levels, uint256[7] calldata stats) external {
+        address sender = _msgSender();
+        uint256 baseCost = completeLevelUp(tokenId, levels, stats);
+        uint256 cost = cost * genesisPriceMultiplier;
+        require(expectedSpend == cost, "GENESIS paid is incorrect");
+        genesisContract.transferFrom(sender, feeReceiver, baseCost);
+    }
+
+    function levelUpWithMATIC(uint256 tokenId, uint256 levels, uint256[7] calldata stats) external payable {
+        uint256 baseCost = completeLevelUp(tokenId, levels, stats);
+        uint256 cost = cost * maticPriceMultiplier;
+        require(msg.value == cost, "MATIC paid is incorrect");
+        payable(feeReceiver).transfer(cost);
+    }
+
+    function completeLevelUp(uint256 tokenId, uint256 levels, uint256[7] calldata stats) internal returns(uint256 baseCost) {
+        uint input = tokenStats[tokenId];
+        require(input > 0, "token stats do not exist");
+        uint256 currentLevel = getLevel(input);
+        require(currentLevel + levels <= 32767, "level cap");
+        uint256 cost = 0;
+        for(uint256 i = 1; i <= levels; i++) {
+            cost = cost + (currentLevel + i) ** 2;
+        }
+        cost = cost * 10;
+        uint256 statSum = stats[0] + stats[1] + stats[2] + stats[3] + stats[4] + stats[5] + stats[6];
+        require(statSum == levels * 7, "incorrect number of stat points");
+        uint256 output = increaseStats(input, stats);
+        output = input + levels >> 112;
+        tokenStats[tokenId] = output;
+        emit TokenStats(tokenId, output);
     }
 
     function levelUp(uint256 tokenId) external {
@@ -214,41 +370,5 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
         subClassRandom = subClassRandom % 16;
         subclass = subclass + subClassRandom == 15 ? 14 : subClassRandom > 10 ? 7 : subClassRandom;
-    }
-
-    // Bytes 6 through 15 of the token hash generate the 7 stats (one mapped to each trait), two for trait bonuses;
-    // The highest a stat can go is 232 (100 for level, 69 from the random roll, 19 from class, 13 from subclass, and 31 from primary stat)
-    // This generates stats from 7 to 70 at 1st level + a max of 31 for the top stat, and  22 for next, 10 for third
-    // Stats of 26 to 89 at 20th
-    // Stats of 106 to 169 at 100th, + 46 = 215 absolute maximum
-    function getStats(uint256 tokenId) external view returns (uint256[7] memory stats) {
-        uint256 tokenIdHash = uint256(keccak256(abi.encode(tokenId)));
-        (uint256 class, uint256 subclass, uint256 trait1, uint256 trait2, uint256 trait3) = getAttributesFromHash(tokenIdHash); 
-        uint256 hash = tokenIdHash << 40;
-        uint256 level = tokenLevel[tokenId];
-        if(level > 100) {
-            level = 100;
-        }
-
-        // Sets the stat based on the level and a random roll
-        for(uint256 i = 0; i < 7; i++) {
-            uint256 stat = hash << (i * 8) % 256;
-            if(stat < 64) {
-            stats[i] = 6 + stat + level;
-            } else if (stat < 128) {
-            stats[i] = 6 + stat % 32 + level;
-            } else {
-            stats[i] = 6 + stat % 16 + level;
-            }
-        }
-        
-        // This adds the bonuses to the stat, based on the character’s traits
-        hash = tokenIdHash << 96 % 256;
-        stats[class % 7 + 1] += hash % 19;
-        stats[subclass % 7 + 1] += hash % 13;
-        hash = tokenIdHash << 104 % 256;
-        stats[trait1 - 1] += hash % 31;
-        stats[trait2 - 1] += hash % 23;
-        stats[trait3 - 1] += hash % 11;
     }
 }
