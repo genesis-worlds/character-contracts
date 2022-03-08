@@ -20,13 +20,14 @@ describe('Character Airdrop', () => {
     let alice: SignerWithAddress;
     let bob: SignerWithAddress;
     let feeReceiver: SignerWithAddress;
+    let approvedContract: SignerWithAddress;
 
     const priceInGenesis = ethers.utils.parseUnits("100", 18);
     const priceInGame = ethers.utils.parseUnits("1000", 18);
     const priceInMatic = ethers.utils.parseUnits("1000", 18);
 
     before(async () => {
-        [owner, alice, bob, feeReceiver] = await ethers.getSigners();
+        [owner, alice, bob, feeReceiver, approvedContract] = await ethers.getSigners();
     });
 
     beforeEach(async () => {
@@ -44,6 +45,8 @@ describe('Character Airdrop', () => {
         await genesis.transfer(bob.address, totalSupply.div(10));
 
         await game.updateLocalContract(character.address, true);
+
+        await character.grantRole(await character.APPROVED_CONTRACT(), approvedContract.address);
     });
 
     describe("Security", () => {
@@ -104,7 +107,7 @@ describe('Character Airdrop', () => {
         it("Get one nft with MATIC", async () => {
             const nftCount0 = await character.balanceOf(alice.address);
             const balance0 = await alice.getBalance();
-            const tx = await character.connect(alice).buyNftwithMatic({ value: priceInMatic });
+            const tx = await character.connect(alice).buyNftWithMatic({ value: priceInMatic });
             const receipt = await tx.wait();
             const nftCount1 = await character.balanceOf(alice.address);
             const balance1 = await alice.getBalance();
@@ -114,17 +117,32 @@ describe('Character Airdrop', () => {
     });
 
     describe("Level up", () => {
-        it("levelUp", async () => {
+        const levels = 1;
+        const statsPlus = [1, 1, 1, 1, 1, 1, 1];
+        it("levelUp with permission", async () => {
+            const tokenId = 1;
             await genesis.connect(alice).approve(character.address, ethers.constants.MaxUint256);
             await character.connect(alice).buyNftWithGENESIS();
+            await character.connect(approvedContract).setStatsWithPermission(tokenId, 1);
 
-            const level0 = await character.tokenLevel(1);
-            const balance0 = await genesis.balanceOf(alice.address);
-            await character.connect(alice).levelUp(1);
-            const level1 = await character.tokenLevel(1);
-            const balance1 = await genesis.balanceOf(alice.address);
+            const stats0 = await character.getStats(tokenId);
+            const level0 = await character.getLevel(await character.tokenStats(tokenId));
+
+            const input = await character.tokenStats(tokenId);
+            const output = await character.increaseStats(input, [1, 1, 1, 1, 1, 1, 1]);
+            console.log(input, output);
+
+            await character.connect(approvedContract).levelUpWithPermission(tokenId, levels, [1, 1, 1, 1, 1, 1, 1]);
+            const stats1 = await character.getStats(tokenId);
+            const level1 = await character.getLevel(await character.tokenStats(tokenId));
+
+            console.log(level1, level0);
+            console.log(stats1);
+            console.log(stats0);
             expect(level1.sub(level0)).to.be.equal(1);
-            expect(balance0.sub(balance1)).to.be.equal(level1.mul(ethers.utils.parseUnits("10", 18)));
+            for (let i = 0; i < 7; i += 1) {
+                expect(stats1[i].sub(stats0[i])).to.be.equal(statsPlus[i]);
+            }
         });
     });
 });

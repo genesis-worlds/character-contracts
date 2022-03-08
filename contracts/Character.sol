@@ -41,9 +41,6 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     /// @notice Price in MATIC
     uint256 public priceInMatic = 1000 * 10**18;
 
-    /// @notice cost to level up
-    uint256 public cost;
-
     /// @notice Genesis multiplier
     uint256 public genesisPriceMultiplier;
 
@@ -52,9 +49,6 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
     /// @notice Matic multiplier
     uint256 public maticPriceMultiplier;
-
-    // @notice Level of tokens
-    mapping(uint256 => uint256) public tokenLevel;
 
     // @notice Level of tokens
     mapping(uint256 => uint256) public tokenStats;
@@ -131,13 +125,6 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     }
 
     /**
-     * @dev Set cost to level up
-     */
-    function setCost(uint256 cost_) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        cost = cost_;
-    }
-
-    /**
      * @dev Set Game price multiplier
      */
     function setGamePriceMultiplier(uint256 gamePriceMultiplier_) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -158,18 +145,6 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
         maticPriceMultiplier = maticPriceMultiplier_;
     }
 
-    // function getPrice(uint256 tokenId) public pure returns (uint256) {
-    //     if (tokenId <= 10000) {
-    //         return 1000;
-    //     } else if (tokenId <= 40000) {
-    //         return 250;
-    //     } else if (tokenId <= 100000) {
-    //         return 100;
-    //     } else {
-    //         return 25;
-    //     }
-    // }
-
     function _createNft(uint256 tokenId) private {
         _mint(_msgSender(), tokenId);
         uint256 newLevel = _getStartingLevel(tokenId);
@@ -189,7 +164,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
         _createNft(tokenId);
     }
 
-    function buyNftwithMatic() external payable {
+    function buyNftWithMatic() external payable {
         uint256 tokenId = totalSupply() + 1;
         require(msg.value >= priceInMatic, "not enough paid");
         payable(feeReceiver).transfer(priceInMatic);
@@ -206,7 +181,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
             if(newStat >= 32768) {
                 newStat = 32767;
             }
-            output = output & (newStat << shift);
+            output = (output | (0xffff << shift)) & (newStat << shift);
         }
     }
 
@@ -219,7 +194,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
             if(newStat >= 32768) {
                 newStat = 0;
             }
-            output = output & (newStat << shift);
+            output = (output | (0xffff << shift)) & (newStat << shift);
         }
     }
 
@@ -251,7 +226,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
         cost = completeLevelUp(tokenId, levels, stats);
     }
 
-    function setStatsWithPermission(uint256 tokenId, uint256 newStats) external onlyTrustedContract returns(uint256 cost) {
+    function setStatsWithPermission(uint256 tokenId, uint256 newStats) external onlyTrustedContract {
         tokenStats[tokenId] = newStats;
         emit TokenStats(tokenId, newStats);
     }
@@ -259,24 +234,24 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     function levelUpWithGAME(uint256 expectedSpend, uint256 tokenId, uint256 levels, uint256[7] calldata stats) external {
         address sender = _msgSender();
         uint256 baseCost = completeLevelUp(tokenId, levels, stats);
-        uint256 cost = cost * gamePriceMultiplier;
-        require(expectedSpend == cost, "GAME paid is incorrect");
+        uint256 gameCost = baseCost * gamePriceMultiplier;
+        require(expectedSpend == gameCost, "GAME paid is incorrect");
         gameContract.transferByContract(sender, feeReceiver, baseCost);
     }
 
     function levelUpWithGENESIS(uint256 expectedSpend, uint256 tokenId, uint256 levels, uint256[7] calldata stats) external {
         address sender = _msgSender();
         uint256 baseCost = completeLevelUp(tokenId, levels, stats);
-        uint256 cost = cost * genesisPriceMultiplier;
-        require(expectedSpend == cost, "GENESIS paid is incorrect");
+        uint256 genesisCost = baseCost * genesisPriceMultiplier;
+        require(expectedSpend == genesisCost, "GENESIS paid is incorrect");
         genesisContract.transferFrom(sender, feeReceiver, baseCost);
     }
 
     function levelUpWithMATIC(uint256 tokenId, uint256 levels, uint256[7] calldata stats) external payable {
         uint256 baseCost = completeLevelUp(tokenId, levels, stats);
-        uint256 cost = cost * maticPriceMultiplier;
-        require(msg.value == cost, "MATIC paid is incorrect");
-        payable(feeReceiver).transfer(cost);
+        uint256 maticCost = baseCost * maticPriceMultiplier;
+        require(msg.value == maticCost, "MATIC paid is incorrect");
+        payable(feeReceiver).transfer(maticCost);
     }
 
     function completeLevelUp(uint256 tokenId, uint256 levels, uint256[7] calldata stats) internal returns(uint256 baseCost) {
@@ -292,17 +267,18 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
         uint256 statSum = stats[0] + stats[1] + stats[2] + stats[3] + stats[4] + stats[5] + stats[6];
         require(statSum == levels * 7, "incorrect number of stat points");
         uint256 output = increaseStats(input, stats);
-        output = input + levels >> 112;
+        output = input + levels << 112;
         tokenStats[tokenId] = output;
         emit TokenStats(tokenId, output);
+        return cost;
     }
 
-    function levelUp(uint256 tokenId) external {
-        uint256 newLevel = tokenLevel[tokenId] + 1;
-        genesisContract.transferFrom(_msgSender(), feeReceiver, 10 * newLevel * 10 ** 18);
-        tokenLevel[tokenId] = newLevel;
-        emit LevelUp(tokenId, newLevel);
-    }
+    // function levelUp(uint256 tokenId) external {
+    //     uint256 newLevel = tokenLevel[tokenId] + 1;
+    //     genesisContract.transferFrom(_msgSender(), feeReceiver, 10 * newLevel * 10 ** 18);
+    //     tokenLevel[tokenId] = newLevel;
+    //     emit LevelUp(tokenId, newLevel);
+    // }
 
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         return string(abi.encodePacked(baseURI, "/", tokenId, "/", tokenLevel[tokenId]));
