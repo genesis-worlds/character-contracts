@@ -15,7 +15,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     bytes32 public constant APPROVED_CONTRACT = keccak256("APPROVED_CONTRACT");
 
     // Doing a bitwise and between this and a stat line should keep everything but the stats
-    uint256 STAT_MASK = 0xfffffffFfffffffFfffffffFfffffffFfffffffFfffffffFff00000000000000;     
+    uint256 STAT_MASK = 0xfffffffFfffffffFfffffffFfffffffFffff0000000000000000000000000000;     
 
     // The genesis contract address
     IGenesis genesisContract;
@@ -145,11 +145,86 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
         maticPriceMultiplier = maticPriceMultiplier_;
     }
 
-    function _createNft(uint256 tokenId) private {
+    // Generates 1 class, 3 traits, and 3 abilities
+    function getStartingStats(uint256 hash) public pure returns (uint256 output) {
+        uint256 tokenIdHash = hash << 8;
+
+        // Stats
+        // Calculate the stat based on the level and a random roll
+        uint256[7] memory stats;
+        for(uint256 i = 0; i < 7; i++) {
+            tokenIdHash = tokenIdHash << 8;
+            uint256 stat = tokenIdHash % 256;
+            if(stat < 64) {
+              stats[i] = 6 + stat;
+            } else if (stat < 128) {
+              stats[i] = 6 + stat % 32;
+            } else {
+              stats[i] = 6 + stat % 16;
+            }
+        }
+        
+        // This should generate 3 unique traits and abilities, roughly evenly distributed,
+        // with no more than one from each of 7 groups.
+        // The first byte gave level
+        // The second byte gives the three traits.
+        // The third byte would give the ability within each trait (not calced here)
+        uint256 trait1 = tokenIdHash % 7; // 0-2 are slightly over-represented
+        uint256 trait2 = tokenIdHash % 6; // 0-2 are slightly over-represented; 3 less so
+        trait2 = trait2 == trait1 ? 7 : trait2;
+        uint256 trait3 = tokenIdHash % 5; // 0 is slightly over-represented; 1 less so
+        trait3 = trait3 == trait1 ? 7 : trait3 == trait2 ? 6 : trait3;
+        output = trait1 << 128; // Trait A
+        output = output & trait2 << 136; // Trait B
+        output = output & trait3 << 144; // Trait C
+        
+        // This adds the bonuses to the stats, based on the character’s traits
+        tokenIdHash = tokenIdHash << 8;
+        stats[trait1] += tokenIdHash % 32;
+        tokenIdHash = tokenIdHash << 8;
+        stats[trait2] += tokenIdHash % 24;
+        tokenIdHash = tokenIdHash << 8;
+        stats[trait3] += tokenIdHash % 16;
+        
+        // encode the stats into the output
+        for(uint256 i = 0; i < 7; i++) {
+            output = output & stats[i] << (i * 16);
+        }
+        
+        // Abilities
+        // Four possible per trait abilities (0-4); 28 possible abilities
+        // One ability is 1/16, one is 3/16, two are 6/16
+        {
+          tokenIdHash = tokenIdHash << 8;
+          uint256 abilityRandom = tokenIdHash % 16;
+          uint256 ability = trait1 + abilityRandom == 15 ? 21 : abilityRandom >= 12 ? 14 : abilityRandom >= 6 ? 7 : 0;
+          output = output & ability << 152; // Ability A
+          tokenIdHash = tokenIdHash << 8;
+          abilityRandom = tokenIdHash % 16;
+          ability = trait2 + abilityRandom == 15 ? 21 : abilityRandom >= 12 ? 14 : abilityRandom >= 6 ? 7 : 0;
+          output = output & ability << 160; // Ability B
+          tokenIdHash = tokenIdHash << 8;
+          abilityRandom = tokenIdHash % 16;
+          ability = trait3 + abilityRandom == 15 ? 21 : abilityRandom >= 12 ? 14 : abilityRandom >= 6 ? 7 : 0;
+          output = output & ability << 168; // Ability C
+        }
+        
+        // This generates a number from 0-20, representing the class of the token.
+        // Classes come in three levels of rarity. They’re independent from traits.
+        // Classes 0, 7, and 14 are the common, rare, and legendary classes for a single trait
+        {
+          tokenIdHash = tokenIdHash << 8;
+          uint256 classRandom = tokenIdHash % 16;
+          uint256 class = trait1 + classRandom == 15 ? 14 : classRandom > 10 ? 7 : 0;
+          output = output & class << 176; // Class
+        }
+    }
+
+    function _createNft(uint256 tokenId) private returns (uint256 baseCost) {
         _mint(_msgSender(), tokenId);
         uint256 newLevel = _getStartingLevel(tokenId);
-        tokenLevel[tokenId] = newLevel;
-        emit LevelUp(tokenId, newLevel);
+        tokenStats[tokenId] = getStartingStats(tokenId);
+        baseCost = completeLevelUp(tokenId, newLevel, [newLevel,newLevel,newLevel,newLevel,newLevel,newLevel,newLevel]);
     }
 
     function buyNftWithGAME() external {
@@ -181,7 +256,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
             if(newStat >= 32768) {
                 newStat = 32767;
             }
-            output = (output | (0xffff << shift)) & (newStat << shift);
+            output = output | (newStat << shift);
         }
     }
 
@@ -194,7 +269,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
             if(newStat >= 32768) {
                 newStat = 0;
             }
-            output = (output | (0xffff << shift)) & (newStat << shift);
+            output = output | (newStat << shift);
         }
     }
 
@@ -254,7 +329,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
         payable(feeReceiver).transfer(maticCost);
     }
 
-    function completeLevelUp(uint256 tokenId, uint256 levels, uint256[7] calldata stats) internal returns(uint256 baseCost) {
+    function completeLevelUp(uint256 tokenId, uint256 levels, uint256[7] memory stats) internal returns(uint256 baseCost) {
         uint input = tokenStats[tokenId];
         require(input > 0, "token stats do not exist");
         uint256 currentLevel = getLevel(input);
@@ -273,41 +348,8 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
         return cost;
     }
 
-    // function levelUp(uint256 tokenId) external {
-    //     uint256 newLevel = tokenLevel[tokenId] + 1;
-    //     genesisContract.transferFrom(_msgSender(), feeReceiver, 10 * newLevel * 10 ** 18);
-    //     tokenLevel[tokenId] = newLevel;
-    //     emit LevelUp(tokenId, newLevel);
-    // }
-
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
-        return string(abi.encodePacked(baseURI, "/", tokenId, "/", tokenLevel[tokenId]));
-    }
-
-    function _getStartingLevel(uint256 tokenId) internal pure returns (uint256 level) {
-        uint256 bonus = 0;
-        if (tokenId <= 10000) { // Level 15-20
-            bonus = 14;
-        } else if (tokenId <= 40000) { // Level 10-15
-            bonus = 9;
-        } else if (tokenId <= 100000) { // Level 5-10
-            bonus = 4;
-        } // Otherwise Level 1-6
-
-        uint256 range = uint256(keccak256(abi.encode(tokenId))) % 64;
-        if (range < 2) {
-            level = bonus + 6;
-        } else if (range < 4) {
-            level = bonus + 5;
-        } else if (range < 8) {
-            level = bonus + 4;
-        } else if (range < 16) {
-            level = bonus + 3;
-        } else if (range < 32) {
-            level = bonus + 2;
-        } else {
-            level = bonus + 1;
-        }
+        return string(abi.encodePacked(baseURI, "?i=", tokenId, "&d=", tokenStats[tokenId]));
     }
 
     // These attributes only cover the top-level attributes (which are each 0-6). To get the next level (specializations), you have to take the next 256 chars of the 
@@ -346,5 +388,31 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
         subClassRandom = subClassRandom % 16;
         subclass = subclass + subClassRandom == 15 ? 14 : subClassRandom > 10 ? 7 : subClassRandom;
+    }
+
+    function _getStartingLevel(uint256 tokenId) internal pure returns (uint256 level) {
+        uint256 bonus = 0;
+        if (tokenId <= 10000) { // Level 15-20
+            bonus = 14;
+        } else if (tokenId <= 40000) { // Level 10-15
+            bonus = 9;
+        } else if (tokenId <= 100000) { // Level 5-10
+            bonus = 4;
+        } // Otherwise Level 1-6
+
+        uint256 range = uint256(keccak256(abi.encode(tokenId))) % 64;
+        if (range < 2) {
+            level = bonus + 6;
+        } else if (range < 4) {
+            level = bonus + 5;
+        } else if (range < 8) {
+            level = bonus + 4;
+        } else if (range < 16) {
+            level = bonus + 3;
+        } else if (range < 32) {
+            level = bonus + 2;
+        } else {
+            level = bonus + 1;
+        }
     }
 }
