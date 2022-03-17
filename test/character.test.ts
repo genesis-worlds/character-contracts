@@ -119,27 +119,92 @@ describe('Character Airdrop', () => {
     describe("Level up", () => {
         const levels = 1;
         const statsPlus = [1, 1, 1, 1, 1, 1, 1];
+
+        function getCost(currentLevel: number, levelCount: number) {
+            let cost = 0;
+            for (let i = 1; i <= levelCount; i += 1) {
+                cost += (currentLevel + i) * (currentLevel + i);
+            }
+            return cost * 10;
+        }
+
         it("levelUp with permission", async () => {
             const tokenId = 1;
             await genesis.connect(alice).approve(character.address, ethers.constants.MaxUint256);
             await character.connect(alice).buyNftWithGENESIS();
             await character.connect(approvedContract).setStatsWithPermission(tokenId, 1);
 
-            const stats0 = await character.getStats(tokenId);
+            const stats0 = await character.getStats(await character.tokenStats(tokenId));
             const level0 = await character.getLevel(await character.tokenStats(tokenId));
 
-            const input = await character.tokenStats(tokenId);
-            const output = await character.increaseStats(input, [1, 1, 1, 1, 1, 1, 1]);
-            console.log(input, output);
-
             await character.connect(approvedContract).levelUpWithPermission(tokenId, levels, [1, 1, 1, 1, 1, 1, 1]);
-            const stats1 = await character.getStats(tokenId);
+            const stats1 = await character.getStats(await character.tokenStats(tokenId));
             const level1 = await character.getLevel(await character.tokenStats(tokenId));
 
-            console.log(level1, level0);
-            console.log(stats1);
-            console.log(stats0);
-            expect(level1.sub(level0)).to.be.equal(1);
+            expect(level1.sub(level0)).to.be.equal(levels);
+            for (let i = 0; i < 7; i += 1) {
+                expect(stats1[i].sub(stats0[i])).to.be.equal(statsPlus[i]);
+            }
+        });
+
+        it("levelUp with game", async () => {
+            const tokenId = 1;
+            await genesis.connect(alice).approve(character.address, ethers.constants.MaxUint256);
+            await character.connect(alice).buyNftWithGENESIS();
+            await character.connect(approvedContract).setStatsWithPermission(tokenId, 1);
+
+            const stats0 = await character.getStats(await character.tokenStats(tokenId));
+            const level0 = await character.getLevel(await character.tokenStats(tokenId));
+
+            const expectedSpend = (await character.gamePriceMultiplier()).mul(getCost(level0.toNumber(), levels));
+
+            await character.connect(approvedContract).levelUpWithGAME(expectedSpend, tokenId, levels, [1, 1, 1, 1, 1, 1, 1]);
+            const stats1 = await character.getStats(await character.tokenStats(tokenId));
+            const level1 = await character.getLevel(await character.tokenStats(tokenId));
+
+            expect(level1.sub(level0)).to.be.equal(levels);
+            for (let i = 0; i < 7; i += 1) {
+                expect(stats1[i].sub(stats0[i])).to.be.equal(statsPlus[i]);
+            }
+        });
+
+        it("levelUp with genesis", async () => {
+            const tokenId = 1;
+            await genesis.connect(alice).approve(character.address, ethers.constants.MaxUint256);
+            await character.connect(alice).buyNftWithGENESIS();
+            await character.connect(approvedContract).setStatsWithPermission(tokenId, 1);
+
+            const stats0 = await character.getStats(await character.tokenStats(tokenId));
+            const level0 = await character.getLevel(await character.tokenStats(tokenId));
+
+            const expectedSpend = (await character.genesisPriceMultiplier()).mul(getCost(level0.toNumber(), levels));
+
+            await character.connect(approvedContract).levelUpWithGENESIS(expectedSpend, tokenId, levels, [1, 1, 1, 1, 1, 1, 1]);
+            const stats1 = await character.getStats(await character.tokenStats(tokenId));
+            const level1 = await character.getLevel(await character.tokenStats(tokenId));
+
+            expect(level1.sub(level0)).to.be.equal(levels);
+            for (let i = 0; i < 7; i += 1) {
+                expect(stats1[i].sub(stats0[i])).to.be.equal(statsPlus[i]);
+            }
+        });
+
+        it("levelUp with MATIC", async () => {
+            const tokenId = 1;
+            await genesis.connect(alice).approve(character.address, ethers.constants.MaxUint256);
+            await character.connect(alice).buyNftWithGENESIS();
+            await character.connect(approvedContract).setStatsWithPermission(tokenId, 1);
+
+            const stats0 = await character.getStats(await character.tokenStats(tokenId));
+            const level0 = await character.getLevel(await character.tokenStats(tokenId));
+
+            const expectedSpend = (await character.maticPriceMultiplier()).mul(getCost(level0.toNumber(), levels));
+
+            await character.connect(approvedContract).levelUpWithMATIC(tokenId, levels, [1, 1, 1, 1, 1, 1, 1], { value: expectedSpend });
+            const stats1 = await character.getStats(await character.tokenStats(tokenId));
+            const level1 = await character.getLevel(await character.tokenStats(tokenId));
+
+            expect(level1.sub(level0)).to.be.equal(levels);
             for (let i = 0; i < 7; i += 1) {
                 expect(stats1[i].sub(stats0[i])).to.be.equal(statsPlus[i]);
             }
