@@ -1,9 +1,20 @@
 pragma solidity ^0.8.0;
 // SPDX-License-Identifier: UNLICENSED
 
+/*
+  Needs:
+  foundation share
+  Assign parcels before sale starts (list of parcels)
+  Slightly larger district sizes? More larger parcels? More districts per world?
+  District and parcel level data
+  Land/Districts from mainnet sales
+  Mainnet land sale contract (just a straight 721?)
+*/
+
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import "@openzeppelin/contracts//utils/math/SafeMath.sol";
 
 import "./interfaces/IGenesis.sol";
 import "./interfaces/IGAME_ERC20.sol";
@@ -11,11 +22,13 @@ import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/ILocalContract.sol";
 
 contract Character is ERC721Enumerable, AccessControl, ILocalContract {
+  using SafeMath for uint;
   bytes32 public constant ORACLE = keccak256("ORACLE");
   bytes32 public constant SALE_MANAGER = keccak256("SALE_MANAGER");
+  bytes32 public constant BUILDING_MANAGER = keccak256("BUILDING_MANAGER");
 
   /// @notice Base URI
-  string public baseURI;
+  string public baseURI = "https://images.genesis.game/land/json/";
 
   /// @notice Price in Genesis
   uint256 public priceInGenesis = 2000 * 10**18;
@@ -27,27 +40,27 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   IERC1155 worldContract;
 
   /// @notice Receiver address to receive fees
-  address public feeReceiver;
+  address public feeReceiver = 0x6C6C6ad72Eb172942BA68690c865e9864EA42eA2;
 
   string[] districtDataSet = ["A", "B", "C", "D", "E", "F", 'G'];
-
-  address feeAddress = 0xe20d2522BB3013bb21a485F0bDf7645C041B3c78;
 
   // burn address is changeable if necessary. Dead address must remain the same
   address burnAddress = 0x000000000000000000000000000000000000dEaD;
   address deadAddress = 0x000000000000000000000000000000000000dEaD;
 
-  mapping (uint => uint) public claimStartTimes;
+  mapping (uint => uint) public presaleStartTimes;
   mapping (uint => uint) public saleStartTimes;
-  mapping (uint => uint) public districts;
 
+  mapping (uint => uint) public districts;
   mapping (uint => uint) public crossChainDistricts;
 
+  // Map buildings to parcels and vice versa
   mapping (uint => uint) public buildingToParcel;
   mapping (uint => uint) public parcelToBuilding;
 
   event MoveBuilding(uint building, uint onParcel, uint parcel, address owner);
   event SaleStart(uint world, uint districts, uint claimStartTime, uint saleStartTime);
+  event ParcelBought(uint parcelId, uint claimsPaid, uint genesisPaid, uint maticPaid);
 
   // Modifiers
   // =========
@@ -62,11 +75,15 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     _;
   }
 
+  modifier onlyBuildingManager {
+    require(hasRole(BUILDING_MANAGER, _msgSender()), "Not a sale manager");
+    _;
+  }
+
   modifier onlyOracle {
     require(hasRole(ORACLE, _msgSender()), "Not an oracle");
     _;
   }
-
 
   constructor(address genesisContract_, address worldContract_)
     ERC721("Genesis Worlds Land", "LAND")
@@ -119,20 +136,20 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
   // A sale manager (person or contract) can set up world sales for worlds
   // World sales can only be changed before it goes on sale
-  function initializeParcelSale(uint world_, uint districts_, uint startTime_, uint claimOnlyDuration_)
+  function initializeParcelSale(uint world_, uint districts_, uint startTime_, uint presaleDuration_)
     public onlySaleManager
   {
     require(world_ < 1000000, "only for on-chain worlds");
     require(block.timestamp < startTime_, "sale has started");
-    uint saleStartTime = startTime_ + claimOnlyDuration_;
-    claimStartTimes[world_] = startTime_;
+    uint saleStartTime = startTime_ + presaleDuration_;
+    presaleStartTimes[world_] = startTime_;
     saleStartTimes[world_] = saleStartTime;
     districts[world_] = districts_;
     emit SaleStart(world_, districts_, startTime_, saleStartTime);
   }
 
   function createBuilding(uint buildingId_, uint size_, uint trait_) 
-    public onlyAdmin 
+    public onlyBuildingManager 
   {
     // how do we set this up in a smart way? Ideally we can create more buildings over time in a smooth way.
     // And we 
@@ -172,38 +189,75 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   // PURCHASE functions
   // ==================
 
-  function claimParcel(uint world_, uint parcelId_)
+  function claimParcels(uint world_, uint[] calldata parcelIds_)
     public
   {
     address sender = _msgSender();
-    (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId_);
-
-    // take payment in claims
-    worldContract.safeTransferFrom(sender, deadAddress, world_, size * size, "0x0");
-    _deliverParcel(world_, parcelId_);
-  }
-
-  function buyParcelWithGenesis(uint world_, uint parcelId_) 
-    public 
-  {
-    (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId_);
-
-    // take payment
-    _deliverParcel(world_, parcelId_);
-  }
-
-  function buyParcelWithMatic(uint world_, uint parcelId_) 
-    public 
-  {
-    (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId_);
-    // need to get the parcel price
+    uint totalPrice = 0;
     // need to get the parcel size and building size, and make sure they fit
-    _deliverParcel(world_, parcelId_);
+    for(uint i = 0; i < parcelIds_.length; i++) {
+      uint parcelId = parcelIds_[i];
+      (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId);
+      uint price = size.mul(size);
+      totalPrice = totalPrice.add(price);
+      emit ParcelBought(parcelId, price, 0, 0);
+      _deliverParcel(world, parcelId_);
+    }
+    // take payment in claims
+    worldContract.safeTransferFrom(sender, deadAddress, world, price, "0x0");
+  }
+
+  function buyParcelsWithGenesis(uint world_, uint[] calldata parcelIds_) 
+    public 
+  {
+
+    address sender = _msgSender();
+    uint totalPrice = 0;
+    // need to get the parcel size and building size, and make sure they fit
+    for(uint i = 0; i < parcelIds_.length; i++) {
+      uint parcelId = parcelIds_[i];
+      (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId);
+      require(world == world_, "Parcel must be from this world");
+
+      uint price = priceInGenesis.mul(size).mul(size);
+      totalPrice = totalPrice.add(price);
+      emit ParcelBought(parcelId, 0, price, 0);
+      // deliver the parcel
+      _deliverParcel(world, parcelId);
+    }
+
+    // take payment, half to burn, half to dev fund
+    uint halfOfPrice = totalPrice.div(2);
+    genesisContract.transferFrom(sender, burnAddress, halfOfPrice);
+    genesisContract.transferFrom(sender, feeReceiver, halfOfPrice);
+
+  }
+
+  function buyParcelsWithMatic(uint world_, uint[] calldata parcelIds_) 
+    public payable
+  {
+    address sender = _msgSender();
+    uint totalPrice = 0;
+    // need to get the parcel size and building size, and make sure they fit
+    for(uint i = 0; i < parcelIds_.length; i++) {
+      uint parcelId = parcelIds_[i];
+      (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId);
+      require(world == world_, "Parcel must be from this world");
+      // need to get the parcel price
+      uint price = priceInMatic.mul(size).mul(size);
+      totalPrice = totalPrice.add(price);
+      emit ParcelBought(parcelId, 0, 0, price);
+      _deliverParcel(world, parcelId);
+    }
+    require(msg.value == totalPrice, "Price must match");
+    (bool sent, bytes memory data) = address(this).call{value: msg.value}("");
+    require(sent, "Failed to send Ether");
   }
 
   function _deliverParcel(uint world_, uint parcelId_)
     internal
   {
+    // ensure parcel exists
     // ensure parcel can be delivered
     // store parcel data
     // if there's a building, deliver it too
