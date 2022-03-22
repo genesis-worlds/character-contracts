@@ -32,6 +32,8 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   string[] districtDataSet = ["A", "B", "C", "D", "E", "F", 'G'];
 
   address feeAddress = 0xe20d2522BB3013bb21a485F0bDf7645C041B3c78;
+
+  // burn address is changeable if necessary. Dead address must remain the same
   address burnAddress = 0x000000000000000000000000000000000000dEaD;
   address deadAddress = 0x000000000000000000000000000000000000dEaD;
 
@@ -50,7 +52,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   // Modifiers
   // =========
 
-  modifier onlyOwner {
+  modifier onlyAdmin {
     require(hasRole(DEFAULT_ADMIN_ROLE, _msgSender()), "Not an owner");
     _;
   }
@@ -129,45 +131,33 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     emit SaleStart(world_, districts_, startTime_, saleStartTime);
   }
 
-  function createBuilding(uint buildingId_, uint size_) 
-    public onlyOwner 
+  function createBuilding(uint buildingId_, uint size_, uint trait_) 
+    public onlyAdmin 
   {
     // how do we set this up in a smart way? Ideally we can create more buildings over time in a smooth way.
     // And we 
   }
 
-  /**
-    * @dev Sets fee receiver
-    */
   function setFeeReceiver(address feeReceiver_) 
-    external onlyRole(DEFAULT_ADMIN_ROLE)
+    external onlyAdmin
   {
       feeReceiver = feeReceiver_;
   }
 
-  /**
-    * @dev Sets fee receiver
-    */
   function setBurnAddress(address burnAddress_)
-    external onlyRole(DEFAULT_ADMIN_ROLE)
+    external onlyAdmin
   {
       burnAddress = burnAddress_;
   }
 
-  /**
-    * @dev Sets base uri
-    */
   function setBaseURI(string memory baseURI_)
-    external onlyRole(DEFAULT_ADMIN_ROLE)
+    external onlyAdmin
   {
       baseURI = baseURI_;
   }
 
-  /**
-    * @dev Set price in Genesis
-    */
   function setPriceInGenesis(uint256 priceInGenesis_)
-    external onlyRole(DEFAULT_ADMIN_ROLE)
+    external onlyAdmin
   {
       priceInGenesis = priceInGenesis_;
   }
@@ -218,6 +208,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     // store parcel data
     // if there's a building, deliver it too
     // store building data
+    // Emit movebuilding
   }
 
 
