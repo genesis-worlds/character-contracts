@@ -33,6 +33,9 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   /// @notice Price in Genesis
   uint256 public priceInGenesis = 2000 * 10**18;
   
+  /// @notice Price in Matic
+  uint256 public priceInMatic = 200 * 10**18;
+
   // The genesis contract address
   IGenesis genesisContract;
 
@@ -94,6 +97,8 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
     _setupRole(SALE_MANAGER, _msgSender());
     _setupRole(ORACLE, _msgSender());
+    _setRoleAdmin(SALE_MANAGER, DEFAULT_ADMIN_ROLE);
+    _setRoleAdmin(ORACLE, DEFAULT_ADMIN_ROLE);
   }
 
   // ADMINISTRATION functions
@@ -179,6 +184,12 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
       priceInGenesis = priceInGenesis_;
   }
 
+  function setPriceInMatic(uint256 priceInMatic_)
+    external onlyAdmin
+  {
+      priceInMatic = priceInMatic_;
+  }
+
   /*function initializeCrossChainWorld(uint world_, uint numberOfDistricts_, bool isOverride_)
     public onlyOracle
   {
@@ -197,14 +208,14 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     // need to get the parcel size and building size, and make sure they fit
     for(uint i = 0; i < parcelIds_.length; i++) {
       uint parcelId = parcelIds_[i];
-      (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId);
+      (uint world, , , uint size) = parseParcelId(parcelId);
       uint price = size.mul(size);
       totalPrice = totalPrice.add(price);
       emit ParcelBought(parcelId, price, 0, 0);
-      _deliverParcel(world, parcelId_);
+      _deliverParcel(world, parcelId);
     }
     // take payment in claims
-    worldContract.safeTransferFrom(sender, deadAddress, world, price, "0x0");
+    worldContract.safeTransferFrom(sender, deadAddress, world_, totalPrice, "");
   }
 
   function buyParcelsWithGenesis(uint world_, uint[] calldata parcelIds_) 
@@ -216,7 +227,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     // need to get the parcel size and building size, and make sure they fit
     for(uint i = 0; i < parcelIds_.length; i++) {
       uint parcelId = parcelIds_[i];
-      (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId);
+      (uint world, , , uint size) = parseParcelId(parcelId);
       require(world == world_, "Parcel must be from this world");
 
       uint price = priceInGenesis.mul(size).mul(size);
@@ -236,12 +247,11 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   function buyParcelsWithMatic(uint world_, uint[] calldata parcelIds_) 
     public payable
   {
-    address sender = _msgSender();
     uint totalPrice = 0;
     // need to get the parcel size and building size, and make sure they fit
     for(uint i = 0; i < parcelIds_.length; i++) {
       uint parcelId = parcelIds_[i];
-      (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId);
+      (uint world, , , uint size) = parseParcelId(parcelId);
       require(world == world_, "Parcel must be from this world");
       // need to get the parcel price
       uint price = priceInMatic.mul(size).mul(size);
@@ -250,7 +260,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
       _deliverParcel(world, parcelId);
     }
     require(msg.value == totalPrice, "Price must match");
-    (bool sent, bytes memory data) = address(this).call{value: msg.value}("");
+    (bool sent, ) = address(this).call{value: msg.value}("");
     require(sent, "Failed to send Ether");
   }
 
