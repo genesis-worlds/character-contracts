@@ -222,8 +222,6 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     function _createNft(uint256 tokenId) internal {
         _mint(_msgSender(), tokenId);
         tokenStats[tokenId] = getStartingStats(uint256(blockhash(block.number - 1)));
-        // uint256 newLevel = _getStartingLevel(tokenId);
-        // baseCost = completeLevelUp(tokenId, newLevel, [newLevel,newLevel,newLevel,newLevel,newLevel,newLevel,newLevel]);
     }
 
     function buyNftWithGAME() external {
@@ -387,31 +385,5 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
         subClassRandom = subClassRandom % 16;
         subclass = subclass + subClassRandom == 15 ? 14 : subClassRandom > 10 ? 7 : subClassRandom;
-    }
-
-    function _getStartingLevel(uint256 tokenId) internal pure returns (uint256 level) {
-        uint256 bonus = 0;
-        if (tokenId <= 10000) { // Level 15-20
-            bonus = 14;
-        } else if (tokenId <= 40000) { // Level 10-15
-            bonus = 9;
-        } else if (tokenId <= 100000) { // Level 5-10
-            bonus = 4;
-        } // Otherwise Level 1-6
-
-        uint256 range = uint256(keccak256(abi.encode(tokenId))) % 64;
-        if (range < 2) {
-            level = bonus + 6;
-        } else if (range < 4) {
-            level = bonus + 5;
-        } else if (range < 8) {
-            level = bonus + 4;
-        } else if (range < 16) {
-            level = bonus + 3;
-        } else if (range < 32) {
-            level = bonus + 2;
-        } else {
-            level = bonus + 1;
-        }
     }
 }
