@@ -14,7 +14,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
-import "@openzeppelin/contracts//utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 import "./interfaces/IGenesis.sol";
 import "./interfaces/IGAME_ERC20.sol";
@@ -22,7 +22,7 @@ import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/ILocalContract.sol";
 
 contract Character is ERC721Enumerable, AccessControl, ILocalContract {
-  using SafeMath for uint;
+  using SafeMath for uint256;
   bytes32 public constant ORACLE = keccak256("ORACLE");
   bytes32 public constant SALE_MANAGER = keccak256("SALE_MANAGER");
   bytes32 public constant BUILDING_MANAGER = keccak256("BUILDING_MANAGER");
@@ -36,8 +36,6 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   /// @notice Price in Matic
   uint256 public priceInMatic = 200 * 10**18;
 
-  uint256 buildingBaseId = 0xf0000000000000000000000000000000000000000000000000000000;
-
   // The genesis contract address
   IGenesis genesisContract;
 
@@ -47,28 +45,23 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   /// @notice Receiver address to receive fees
   address public feeReceiver = 0x6C6C6ad72Eb172942BA68690c865e9864EA42eA2;
 
-  string[] districtDataSet = ["A", "B", "C", "D", "E", "F", 'G'];
-
   // burn address is changeable if necessary. Dead address must remain the same
   address burnAddress = 0x000000000000000000000000000000000000dEaD;
   address deadAddress = 0x000000000000000000000000000000000000dEaD;
 
-  mapping (uint => uint) public presaleStartTimes;
-  mapping (uint => uint) public saleStartTimes;
+  mapping (uint256 => uint256) public presaleStartTimes;
+  mapping (uint256 => uint256) public saleStartTimes;
 
-  mapping (uint => uint) public districts;
-  mapping (uint => uint) public crossChainDistricts;
+  mapping (uint256 => uint256) public parcelTraits;
 
-  // Map buildings to parcels and vice versa
-  mapping (uint => uint) public buildingToParcel;
-  mapping (uint => uint) public parcelToBuilding;
+  uint256[5] public priceUnitsByParcelSize = [1, 4, 8, 16, 32];
+  mapping (uint256 => uint256[5]) maxParcelsPerWorld;
+  mapping (uint256 => uint256[5]) foundationParcelsPerWorld;
 
-  mapping (uint => uint) public parcelTraits;
-
-
-  event MoveBuilding(uint building, uint onParcel, uint parcel, address owner);
-  event SaleStart(uint world, uint districts, uint claimStartTime, uint saleStartTime);
-  event ParcelBought(uint parcelId, uint claimsPaid, uint genesisPaid, uint maticPaid);
+  event SaleStart(uint256 world, uint256 districts, uint256 claimStartTime, uint256 saleStartTime);
+  event ParcelBought(uint256 parcelId, uint256 claimsPaid, uint256 genesisPaid, uint256 maticPaid);
+  event ParcelTraits(uint256 parcelId);
+  event BuildingTraits(uint256 parcelId);
 
   // Modifiers
   // =========
@@ -106,63 +99,36 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     _setRoleAdmin(ORACLE, DEFAULT_ADMIN_ROLE);
   }
 
-  // ADMINISTRATION functions
-  // ========================
-
-  // Connect a building to another land, disconnect a building from a land
-  function moveBuilding(uint building_, uint fromParcel_, uint toParcel_) 
-    public
+  /**
+    * @dev See {IERC165-supportsInterface}.
+    */
+  function supportsInterface(bytes4 interfaceId)
+    public view override(ERC721Enumerable, AccessControl) 
+    returns (bool)
   {
-    _moveBuilding(building_, fromParcel_, toParcel_, _msgSender());
+    return
+      interfaceId == type(IERC721).interfaceId ||
+      interfaceId == type(IERC721Metadata).interfaceId ||
+      super.supportsInterface(interfaceId);
   }
 
-  // Can move a building you own from any land
-  // Can move any building from a land you own
-  // Can move a building you own onto a land you own
-  function _moveBuilding(uint building_, uint fromParcel_, uint toParcel_, address owner_)
-    internal 
-  {
-    uint buildingOnFromParcel = parcelToBuilding[fromParcel_];
-    uint buildingOnToParcel = parcelToBuilding[toParcel_];
-    require(buildingToParcel[building_] == fromParcel_, "must be on the parcel you state");
-    address buildingOwner = ownerOf(building_);
-    if(fromParcel_ > 0) {
-      require(buildingOnFromParcel == building_, "building must be on fromParcel");
-      require(owner_ == ownerOf(fromParcel_) || owner_ == buildingOwner, "sender must own fromParcel and/or building");
-      delete parcelToBuilding[fromParcel_];
-    }
-    if(toParcel_ > 0) {
-      require(buildingOnToParcel == 0, "toParcel must be empty");
-      require(owner_ == buildingOwner, "sender must own building");
-      require(ownerOf(toParcel_) == owner_, "sender must own toParcel");
-      parcelToBuilding[toParcel_] = building_;
-      uint parcelSize = getParcelSize(toParcel_);
-      uint buildingSize = getBuildingSize(building_);
-      require(parcelSize >= buildingSize, "building must fit on the parcel");
-    }
-    buildingToParcel[building_] = toParcel_;
-    emit MoveBuilding(building_, fromParcel_, toParcel_, owner_);
-  }
+  //////////////////////////////////////////////////////////////
+  //                                                          //
+  //                         Admin                            //
+  //                                                          //
+  //////////////////////////////////////////////////////////////
 
   // A sale manager (person or contract) can set up world sales for worlds
   // World sales can only be changed before it goes on sale
-  function initializeParcelSale(uint world_, uint districts_, uint startTime_, uint presaleDuration_)
+  function initializeParcelSale(uint256 world_, uint256 districts_, uint256 startTime_, uint256 presaleDuration_)
     public onlySaleManager
   {
     require(world_ < 1000000, "only for on-chain worlds");
     require(block.timestamp < startTime_, "sale has started");
-    uint saleStartTime = startTime_ + presaleDuration_;
+    uint256 saleStartTime = startTime_ + presaleDuration_;
     presaleStartTimes[world_] = startTime_;
     saleStartTimes[world_] = saleStartTime;
-    districts[world_] = districts_;
     emit SaleStart(world_, districts_, startTime_, saleStartTime);
-  }
-
-  function createBuilding(uint buildingId_, uint size_, uint trait_) 
-    public onlyBuildingManager 
-  {
-    // how do we set this up in a smart way? Ideally we can create more buildings over time in a smooth way.
-    // And we 
   }
 
   function setFeeReceiver(address feeReceiver_) 
@@ -195,28 +161,51 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
       priceInMatic = priceInMatic_;
   }
 
-  /*function initializeCrossChainWorld(uint world_, uint numberOfDistricts_, bool isOverride_)
+  function setPriceUnitsByParcelSize(uint256[5] memory _priceUnits)
+    external onlyAdmin 
+  {
+    for (uint256 i = 0; i < 5; i += 1) {
+      priceUnitsByParcelSize[i] = _priceUnits[i];
+    } 
+  }
+
+  function setParcelsPerWorld(uint256 world, uint256[5] memory _max, uint256[5] memory _foundation)
+    external onlyAdmin
+  {
+    // TODO: (a) the function can’t be called if a parcel for that world exists
+
+    require(presaleStartTimes[world] > block.timestamp, "Presale already started");
+
+    for (uint256 i = 0; i < 5; i += 1) {
+      require(_max[i] + _foundation[i] < 10000, "9999 is maximum parcels per world");
+      maxParcelsPerWorld[world][i] = _max[i];
+      foundationParcelsPerWorld[world][i] = _foundation[i];
+    }
+  }
+
+  /*function initializeCrossChainWorld(uint256 world_, uint256 numberOfDistricts_, bool isOverride_)
     public onlyOracle
   {
     require(world_ >= 1000000, "only for cross-chain worlds");
-    crossChainDistricts[world_] = numberOfDistricts_;
   }*/
 
-  // PURCHASE functions
-  // ==================
-
+  //////////////////////////////////////////////////////////////
+  //                                                          //
+  //                         Purchase                         //
+  //                                                          //
+  //////////////////////////////////////////////////////////////
 
   // Parcels can only be granted by a sale manager
   // Parcels can be granted any time after the sale is set up,
   //   even before/during the presale or during/after the main sale
-  function grantParcels(address recipient, uint world_, uint[] calldata parcelIds_)
+  function grantParcels(address recipient, uint256 world_, uint256[] calldata parcelIds_)
     public
     onlySaleManager
   {
     require(presaleStartTimes[world_] > 0, "World is not ready for sale");
-    for(uint i = 0; i < parcelIds_.length; i++) {
-      uint parcelId = parcelIds_[i];
-      (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId);
+    for(uint256 i = 0; i < parcelIds_.length; i++) {
+      uint256 parcelId = parcelIds_[i];
+      (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
       require(world == world_, "Parcel must be from this world");
       emit ParcelBought(parcelId, 0, 0, 0);
       _deliverParcel(recipient, parcelId, world, district, parcel, size);
@@ -224,21 +213,19 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   }
 
   // Parcels can be claimed with mining claims during the presale or regular sale
-  function claimParcels(address recipient, uint world_, uint[] calldata parcelIds_)
+  function claimParcels(address recipient, uint256 world_, uint256[] calldata parcelIds_)
     public
   {
     require(presaleStartTimes[world_] > block.timestamp, "Presale has not started");
     address sender = _msgSender();
-    uint totalPrice = 0;
+    uint256 totalPrice = 0;
     // need to get the parcel size and building size, and make sure they fit
-    for(uint i = 0; i < parcelIds_.length; i++) {
-      uint parcelId = parcelIds_[i];
-      (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId);
+    for(uint256 i = 0; i < parcelIds_.length; i++) {
+      uint256 parcelId = parcelIds_[i];
+      (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
       require(world == world_, "Parcel must be from this world");
-      bool isFoundationOnly = isFoundationParcel(world, district, parcel);
-      require(!isFoundationOnly, "Parcel must be available for sale");
 
-      uint price = size.mul(size);
+      uint256 price = size.mul(size);
       totalPrice = totalPrice.add(price);
       emit ParcelBought(parcelId, price, 0, 0);
       _deliverParcel(recipient, parcelId, world, district, parcel, size);
@@ -248,21 +235,19 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   }
 
   // Parcels can be bought with GENESIS only during the regular sale, not the presale
-  function buyParcelsWithGenesis(address recipient, uint world_, uint[] calldata parcelIds_) 
+  function buyParcelsWithGenesis(address recipient, uint256 world_, uint256[] calldata parcelIds_) 
     public 
   {
     require(saleStartTimes[world_] > block.timestamp, "Regular sale has not started");
     address sender = _msgSender();
-    uint totalPrice = 0;
+    uint256 totalPrice = 0;
     // need to get the parcel size and building size, and make sure they fit
-    for(uint i = 0; i < parcelIds_.length; i++) {
-      uint parcelId = parcelIds_[i];
-      (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId);
+    for(uint256 i = 0; i < parcelIds_.length; i++) {
+      uint256 parcelId = parcelIds_[i];
+      (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
       require(world == world_, "Parcel must be from this world");
-      bool isFoundationOnly = isFoundationParcel(world, district, parcel);
-      require(!isFoundationOnly, "Parcel must be available for sale");
 
-      uint price = priceInGenesis.mul(size).mul(size);
+      uint256 price = priceInGenesis.mul(size).mul(size);
       totalPrice = totalPrice.add(price);
       emit ParcelBought(parcelId, 0, price, 0);
       // deliver the parcel
@@ -270,27 +255,26 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     }
 
     // take payment, half to burn, half to dev fund
-    uint halfOfPrice = totalPrice.div(2);
+    uint256 halfOfPrice = totalPrice.div(2);
     genesisContract.transferFrom(sender, burnAddress, halfOfPrice);
     genesisContract.transferFrom(sender, feeReceiver, halfOfPrice);
 
   }
 
   // Parcels can be bought with MATIC only during the regular sale, not the presale
-  function buyParcelsWithMatic(address recipient, uint world_, uint[] calldata parcelIds_) 
+  function buyParcelsWithMatic(address recipient, uint256 world_, uint256[] calldata parcelIds_) 
     public payable
   {
     require(saleStartTimes[world_] > block.timestamp, "Regular sale has not started");
-    uint totalPrice = 0;
+    uint256 totalPrice = 0;
     // need to get the parcel size and building size, and make sure they fit
-    for(uint i = 0; i < parcelIds_.length; i++) {
-      uint parcelId = parcelIds_[i];
-      (uint world, uint district, uint parcel, uint size) = parseParcelId(parcelId);
+    for(uint256 i = 0; i < parcelIds_.length; i++) {
+      uint256 parcelId = parcelIds_[i];
+      (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
       require(world == world_, "Parcel must be from this world");
-      bool isFoundationOnly = isFoundationParcel(world, district, parcel);
-      require(!isFoundationOnly, "Parcel must be available for sale");
+
       // need to get the parcel price
-      uint price = priceInMatic.mul(size).mul(size);
+      uint256 price = priceInMatic.mul(size).mul(size);
       totalPrice = totalPrice.add(price);
       emit ParcelBought(parcelId, 0, 0, price);
       _deliverParcel(recipient, parcelId, world, district, parcel, size);
@@ -302,7 +286,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
   // parcels and districts are zero-based, so the 6x6 parcel in each district is parcel 0
   // worlds are both 1-based, so district #0 and world #0 are invalid
-  function _deliverParcel(address recipient, uint parcelId_, uint world_, uint district_, uint parcel_, uint size_)
+  function _deliverParcel(address recipient, uint256 parcelId_, uint256 world_, uint256 district_, uint256 parcel_, uint256 size_)
     internal
   {
     // ensure parcel and district exists
@@ -312,31 +296,26 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     _mint(recipient, parcelId_);
     // store parcel data
     // traits, size, etc
-    uint traits = getParcelTraits(parcelId_);
+    uint256 traits = getParcelTraits(parcelId_);
     emit ParcelTraits(parcelId_);
     // if there's a building, deliver it too: figure out what building (if any is attached)
 
     // store building data
 
     // Deliver the building, and attach it to the land
-    uint buildingId = 0xfffffffffffffffffff;
+    uint256 buildingId = 0xfffffffffffffffffff;
     _mint(recipient, buildingId);
-    _moveBuilding(buildingId, 0, parcelId_, recipient);
-    uint buildingTraits = getBuildingTraits(buildingId);
-    emit buildingTraits(parcelId_);
   }
 
 
   /*function deliverCrossChainParcel(
-    uint world_,
-    uint district_,
-    uint parcel_,
-    uint building_,
+    uint256 world_,
+    uint256 district_,
+    uint256 parcel_,
+    uint256 building_,
     address recipient_,
     bool isOverride_
   ) public onlyOracle {
-    require(crossChainDistricts[world_] > 0, "districts must be set");
-    require(district_ <= crossChainDistricts[world_] && district_ > 0, "district must exist");
     require(parcel_ > 0, "parcel must be non-zero");
     uint256 tokenId = encodeParcelId(world_, district_, parcel_);
     require(_owners(tokenId) = address(0), "must not be owned");
@@ -346,8 +325,12 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     _mint(recipient_, tokenId);
   }*/
 
-  // VIEW and PURE functions
-  // =======================
+
+  //////////////////////////////////////////////////////////////
+  //                                                          //
+  //                       VIEW and PURE                      //
+  //                                                          //
+  //////////////////////////////////////////////////////////////
 
   function tokenURI(uint256 tokenId)
     public view override
@@ -356,112 +339,50 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     return string(abi.encodePacked(baseURI, "?i=", tokenId)); //, "&d=", tokenStats[tokenId]));
   }
 
-  function isFoundationParcel(uint world, uint district, uint parcel, uint size)
-    public
-    view
-    returns(bool)
-  {
-    // size 1 - 10%
-    // size 2 - 25% foundation, 
-    // size 4 - 25% foundation, 25% empty, 25% buildings
-    // size 6 - 25% foundation, 25% moons, 50% buildings << could be actual random...
-  }
-
-  function getParcelSize(uint parcelId_)
-    public pure
-    returns(uint size)
-  {
-    uint parcel = parcelId_ % 1000;
-    if(parcel > 21) {
-      return 1;
-    } else if(parcel > 5) {
-      return 2;
-    } else if(parcel > 1) {
-      return 4;
-    } else {
-      return 6;
-    }
-
-    /*uint256 districtSeed = parcelId_ / 1000 * 1000;
-    uint256 parcelNumber = parcelId_ % 1000;
-    uint parcelData = getParcelData(districtSeed); // 23 possible parcels, can change this
-
-    // Parcel size is pulled from a lookup of what the district is.
-    // Size is 1/2/4/6
-    // ParcelData is built from 64 uint3 numbers (0-8, but only using 1,2,4,6)
-    // it looks like a string of 64 numbers: 0x111111111122222244446
-    uint256 parcelSize = parcelNumber >= 64 ? 1 : (parcelData << parcelNumber * 4) % 16;*/
-  }
-
-  // building sizes are encoded into first digit of the building ID
-  function getBuildingSize(uint buildingId_)
-    public pure
-    returns(uint size)
-  {
-    size = buildingId_ << 248;
-    require(size > 0, "not a valid building id");
-  }
-
-  function encodeParcelId(uint world_, uint district_, uint parcel_) 
+  function encodeParcelId(uint256 world_, uint256 size_, uint256 parcel_) 
     public pure 
-    returns(uint parcelId)
+    returns(uint256 parcelId)
   {
-    require(world_ < 1000000);
-    require(district_ < 100);
-    require(parcel_ < 1000);
-    parcelId = world_ * 100000 + district_ * 1000 + parcel_;
+    require(world_ < 1000000000000);
+    require(size_ < 5);
+    require(parcel_ < 10000);
+    parcelId = world_ * 100000 + size_ * 10000 + parcel_;
   }
 
-  function parseParcelId(uint parcelId_) 
+  function parseParcelId(uint256 parcelId_) 
     public pure 
-    returns(uint world, uint district, uint parcel, uint size) 
+    returns(uint256 world, uint256 district, uint256 parcel, uint256 size) 
   {
     world = parcelId_ / 100000;
-    parcel = parcelId_ % 1000;
-    district = (parcelId_ - parcel) % 100000;
-    size = getParcelSize(parcelId_);
-
-    // We can simplify this by having a single district setup: 1x 6x6, 4x 4x4, 16x 2x2, 92x 1x1
+    parcel = parcelId_ % 10000;
+    size = (parcelId_ - parcel) % 100000;
   }
 
-  // Might want to key parcel data off traits rather than parcelId/world
-  // If we expect 24 districts per world, we could have 4 parcels per type (28 total),
-  //   and double up each of them
-  function getParcelData(uint districtSeed_)
+  function getWorldTraits(uint256 worldId_)
     public pure 
-    returns(uint data) 
-  {
-    uint key = districtSeed_ % 23;
-    data = key == 0 ? 0xabcdefabcdefabcdabcdefabcdefabcdabcdefabcdefabcdabcdefabcdefabcd :
-      key == 1 ? 0xabcdefabcdefabcdabcdefabcdefabcdabcdefabcdefabcdabcdefabcdefabcd : 0xabcdefabcdefabcdabcdefabcdefabcdabcdefabcdefabcdabcdefabcdefabcd;
-      // " 23 total lines here. Cheaper to do this than do a lookup";
-  }
-
-  function getWorldTraits(uint worldId_)
-    public pure 
-    returns(uint[3] memory traits)
+    returns(uint256[3] memory traits)
   {
     if(worldId_ > 35 || worldId_ == 0) {
       // Not a core world, random traits, can brute force select if we need to pick for a client
-      uint trait1 = worldId_ % 7;
-      uint trait2 = worldId_ % 6;
+      uint256 trait1 = worldId_ % 7;
+      uint256 trait2 = worldId_ % 6;
       trait2 = trait2 == trait1 ? 7 : trait2;
-      uint trait3 = worldId_ % 5; // 0 is slightly over-represented; 1 less so
+      uint256 trait3 = worldId_ % 5; // 0 is slightly over-represented; 1 less so
       trait3 = trait3 == trait1 ? 7 : trait3 == trait2 ? 6 : trait3;
       traits = [trait1, trait2, trait3];
     } else {
       // core world, table of 35 rows of specific traits to look up.
-      traits = worldId_ == 1 ? [uint(1), uint(2), uint(3)] : 
-        worldId_ == 2 ? [uint(1), uint(2), uint(3)] : [uint(1), uint(2), uint(3)];
+      traits = worldId_ == 1 ? [uint256(1), uint256(2), uint256(3)] : 
+        worldId_ == 2 ? [uint256(1), uint256(2), uint256(3)] : [uint256(1), uint256(2), uint256(3)];
         // ... [world % 7
     }
   }
 
-  function getParcelTraits(uint parcelId_) 
+  function getParcelTraits(uint256 parcelId_) 
     public pure 
-    returns(uint size, uint trait, uint building, uint[3] memory attributes)
+    returns(uint256 size, uint256 trait, uint256 building, uint256[3] memory attributes)
   {
-    (uint world, uint district, uint parcel, uint size_) = parseParcelId(parcelId_);
+    (uint256 world, uint256 district, uint256 parcel, uint256 size_) = parseParcelId(parcelId_);
     size = size_;
   // would be better to hash these seeds, so it’s not everything just in order
     uint256 seed = world + district + parcel;
@@ -471,7 +392,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     trait = traits[seed % 3]; 
 
     // building 
-    uint buildingType = seed % 5;
+    uint256 buildingType = seed % 5;
     building = buildingType == 0 || size < 2 ? 0 
       : size == 2 ? buildingType + 4 
       : size == 4 ? buildingType / 2 + 2
@@ -484,29 +405,15 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     attributes[2] = seed % 7 + attributeBase + 24; // one of attribute 25-31
   }
 
-  function getDistrictData(uint districtHash_) 
-    public pure
-    returns(uint districtData) 
+  function getMaxParcelsPerWorld(uint256 world)
+    public view returns (uint256[5] memory)
   {
-    uint256 districtType = districtHash_ % 16;
-    if(districtType == 0) {
-      return 1;
-    } else if(districtType == 1) {
-      return 2;
-    } 
-    // FIXME - finish this
+    return maxParcelsPerWorld[world];
   }
 
-  /**
-    * @dev See {IERC165-supportsInterface}.
-    */
-  function supportsInterface(bytes4 interfaceId)
-    public view override(ERC721Enumerable, AccessControl) 
-    returns (bool)
+  function getFoundationParcelsPerWorld(uint256 world)
+    public view returns (uint256[5] memory)
   {
-    return
-      interfaceId == type(IERC721).interfaceId ||
-      interfaceId == type(IERC721Metadata).interfaceId ||
-      super.supportsInterface(interfaceId);
+    return foundationParcelsPerWorld[world];
   }
 }
