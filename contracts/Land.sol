@@ -296,7 +296,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     _mint(recipient, parcelId_);
     // store parcel data
     // traits, size, etc
-    uint256 traits = getParcelTraits(parcelId_);
+    (uint256 size, uint trait,,) = getParcelTraits(parcelId_);
     emit ParcelTraits(parcelId_);
     // if there's a building, deliver it too: figure out what building (if any is attached)
 
