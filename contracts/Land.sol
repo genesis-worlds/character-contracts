@@ -54,6 +54,8 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
   mapping (uint256 => uint256) public parcelTraits;
 
+  mapping (uint256 => uint256[5]) public totalParcelCounts;
+
   uint256[5] public priceUnitsByParcelSize = [1, 4, 8, 16, 32];
   mapping (uint256 => uint256[5]) maxParcelsPerWorld;
   mapping (uint256 => uint256[5]) foundationParcelsPerWorld;
@@ -198,17 +200,20 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   // Parcels can only be granted by a sale manager
   // Parcels can be granted any time after the sale is set up,
   //   even before/during the presale or during/after the main sale
-  function grantParcels(address recipient, uint256 world_, uint256[] calldata parcelIds_)
+  function grantParcels(address recipient, uint256 world_, uint256[5] calldata amounts)
     public
     onlySaleManager
   {
     require(presaleStartTimes[world_] > 0, "World is not ready for sale");
-    for(uint256 i = 0; i < parcelIds_.length; i++) {
-      uint256 parcelId = parcelIds_[i];
-      (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
-      require(world == world_, "Parcel must be from this world");
-      emit ParcelBought(parcelId, 0, 0, 0);
-      _deliverParcel(recipient, parcelId, world, district, parcel, size);
+    for (uint256 size = 0; size < 5; size++) {
+      for(uint256 i = 0; i < amounts[size]; i++) {
+        require(totalParcelCounts[world_][size] < foundationParcelsPerWorld[world_][size], "Exceeds foundation parcels count");
+        uint256 parcelId = totalParcelCounts[world_][size];
+        (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
+        require(world == world_, "Parcel must be from this world");
+        emit ParcelBought(parcelId, 0, 0, 0);
+        _deliverParcel(recipient, parcelId, world, district, parcel, size);
+      }
     }
   }
 
@@ -294,6 +299,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     require(parcel_ < 113, "invalid parcel");
     // deliver the parcel
     _mint(recipient, parcelId_);
+    totalParcelCounts[world_][size_] = totalParcelCounts[world_][size_] + 1;
     // store parcel data
     // traits, size, etc
     (uint256 size, uint trait,,) = getParcelTraits(parcelId_);
