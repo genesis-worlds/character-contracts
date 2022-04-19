@@ -218,45 +218,51 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   }
 
   // Parcels can be claimed with mining claims during the presale or regular sale
-  function claimParcels(address recipient, uint256 world_, uint256[] calldata parcelIds_)
+  function claimParcels(address recipient, uint256 world_, uint256[5] calldata amounts)
     public
   {
     require(presaleStartTimes[world_] > block.timestamp, "Presale has not started");
     address sender = _msgSender();
     uint256 totalPrice = 0;
     // need to get the parcel size and building size, and make sure they fit
-    for(uint256 i = 0; i < parcelIds_.length; i++) {
-      uint256 parcelId = parcelIds_[i];
-      (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
-      require(world == world_, "Parcel must be from this world");
+    for (uint256 size = 0; size < 5; size++) {
+      for(uint256 i = 0; i < amounts[size]; i++) {
+        require(totalParcelCounts[world_][size] < maxParcelsPerWorld[world_][size], "Exceeds foundation parcels count");
+        uint256 parcelId = totalParcelCounts[world_][size];
+        (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
+        require(world == world_, "Parcel must be from this world");
 
-      uint256 price = size.mul(size);
-      totalPrice = totalPrice.add(price);
-      emit ParcelBought(parcelId, price, 0, 0);
-      _deliverParcel(recipient, parcelId, world, district, parcel, size);
+        uint256 price = size.mul(size);
+        totalPrice = totalPrice.add(price);
+        emit ParcelBought(parcelId, price, 0, 0);
+        _deliverParcel(recipient, parcelId, world, district, parcel, size);
+      }
     }
     // take payment in claims
     worldContract.safeTransferFrom(sender, deadAddress, world_, totalPrice, "");
   }
 
   // Parcels can be bought with GENESIS only during the regular sale, not the presale
-  function buyParcelsWithGenesis(address recipient, uint256 world_, uint256[] calldata parcelIds_) 
+  function buyParcelsWithGenesis(address recipient, uint256 world_, uint256[5] calldata amounts) 
     public 
   {
     require(saleStartTimes[world_] > block.timestamp, "Regular sale has not started");
     address sender = _msgSender();
     uint256 totalPrice = 0;
     // need to get the parcel size and building size, and make sure they fit
-    for(uint256 i = 0; i < parcelIds_.length; i++) {
-      uint256 parcelId = parcelIds_[i];
-      (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
-      require(world == world_, "Parcel must be from this world");
+    for (uint256 size = 0; size < 5; size++) {
+      for(uint256 i = 0; i < amounts[size]; i++) {
+        require(totalParcelCounts[world_][size] < maxParcelsPerWorld[world_][size], "Exceeds foundation parcels count");
+        uint256 parcelId = totalParcelCounts[world_][size];
+        (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
+        require(world == world_, "Parcel must be from this world");
 
-      uint256 price = priceInGenesis.mul(size).mul(size);
-      totalPrice = totalPrice.add(price);
-      emit ParcelBought(parcelId, 0, price, 0);
-      // deliver the parcel
-      _deliverParcel(recipient, parcelId, world, district, parcel, size);
+        uint256 price = priceInGenesis.mul(size).mul(size);
+        totalPrice = totalPrice.add(price);
+        emit ParcelBought(parcelId, 0, price, 0);
+        // deliver the parcel
+        _deliverParcel(recipient, parcelId, world, district, parcel, size);
+      }
     }
 
     // take payment, half to burn, half to dev fund
@@ -267,22 +273,25 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   }
 
   // Parcels can be bought with MATIC only during the regular sale, not the presale
-  function buyParcelsWithMatic(address recipient, uint256 world_, uint256[] calldata parcelIds_) 
+  function buyParcelsWithMatic(address recipient, uint256 world_, uint256[5] calldata amounts) 
     public payable
   {
     require(saleStartTimes[world_] > block.timestamp, "Regular sale has not started");
     uint256 totalPrice = 0;
     // need to get the parcel size and building size, and make sure they fit
-    for(uint256 i = 0; i < parcelIds_.length; i++) {
-      uint256 parcelId = parcelIds_[i];
-      (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
-      require(world == world_, "Parcel must be from this world");
+    for (uint256 size = 0; size < 5; size++) {
+      for(uint256 i = 0; i < amounts[size]; i++) {
+        require(totalParcelCounts[world_][size] < maxParcelsPerWorld[world_][size], "Exceeds foundation parcels count");
+        uint256 parcelId = totalParcelCounts[world_][size];
+        (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
+        require(world == world_, "Parcel must be from this world");
 
-      // need to get the parcel price
-      uint256 price = priceInMatic.mul(size).mul(size);
-      totalPrice = totalPrice.add(price);
-      emit ParcelBought(parcelId, 0, 0, price);
-      _deliverParcel(recipient, parcelId, world, district, parcel, size);
+        // need to get the parcel price
+        uint256 price = priceInMatic.mul(size).mul(size);
+        totalPrice = totalPrice.add(price);
+        emit ParcelBought(parcelId, 0, 0, price);
+        _deliverParcel(recipient, parcelId, world, district, parcel, size);
+      }
     }
     require(msg.value == totalPrice, "Price must match");
     (bool sent, ) = address(this).call{value: msg.value}("");
