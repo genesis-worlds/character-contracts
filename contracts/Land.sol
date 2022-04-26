@@ -5,9 +5,8 @@ pragma solidity ^0.8.0;
   Needs:
   foundation share
   Assign parcels before sale starts (list of parcels)
-  Slightly larger district sizes? More larger parcels? More districts per world?
-  District and parcel level data
-  Land/Districts from mainnet sales
+  parcel level data
+  Land from mainnet sales
   Mainnet land sale contract (just a straight 721?)
 */
 
@@ -37,17 +36,17 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   uint256 public priceInMatic = 200 * 10**18;
 
   // The genesis contract address
-  IGenesis genesisContract;
+  IGenesis private genesisContract;
 
   // The world contract address
-  IERC1155 worldContract;
+  IERC1155 private worldContract;
 
   /// @notice Receiver address to receive fees
   address public feeReceiver = 0x6C6C6ad72Eb172942BA68690c865e9864EA42eA2;
 
   // burn address is changeable if necessary. Dead address must remain the same
-  address burnAddress = 0x000000000000000000000000000000000000dEaD;
-  address deadAddress = 0x000000000000000000000000000000000000dEaD;
+  address private burnAddress = 0x000000000000000000000000000000000000dEaD;
+  address private deadAddress = 0x000000000000000000000000000000000000dEaD;
 
   mapping (uint256 => uint256) public presaleStartTimes;
   mapping (uint256 => uint256) public saleStartTimes;
@@ -57,10 +56,10 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   mapping (uint256 => uint256[5]) public totalParcelCounts;
 
   uint256[5] public priceUnitsByParcelSize = [1, 4, 8, 16, 32];
-  mapping (uint256 => uint256[5]) maxParcelsPerWorld;
-  mapping (uint256 => uint256[5]) foundationParcelsPerWorld;
+  mapping (uint256 => uint256[5]) private maxParcelsPerWorld;
+  mapping (uint256 => uint256[5]) private foundationParcelsPerWorld;
 
-  event SaleStart(uint256 world, uint256 districts, uint256 claimStartTime, uint256 saleStartTime);
+  event SaleStart(uint256 world, uint256 claimStartTime, uint256 saleStartTime);
   event ParcelBought(uint256 parcelId, uint256 claimsPaid, uint256 genesisPaid, uint256 maticPaid);
   event ParcelTraits(uint256 parcelId);
   event BuildingTraits(uint256 parcelId);
@@ -122,7 +121,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
   // A sale manager (person or contract) can set up world sales for worlds
   // World sales can only be changed before it goes on sale
-  function initializeParcelSale(uint256 world_, uint256 districts_, uint256 startTime_, uint256 presaleDuration_)
+  function initializeParcelSale(uint256 world_, uint256 startTime_, uint256 presaleDuration_)
     public onlySaleManager
   {
     require(world_ < 1000000, "only for on-chain worlds");
@@ -130,7 +129,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     uint256 saleStartTime = startTime_ + presaleDuration_;
     presaleStartTimes[world_] = startTime_;
     saleStartTimes[world_] = saleStartTime;
-    emit SaleStart(world_, districts_, startTime_, saleStartTime);
+    emit SaleStart(world_, startTime_, saleStartTime);
   }
 
   function setFeeReceiver(address feeReceiver_) 
@@ -209,10 +208,10 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
       for(uint256 i = 0; i < amounts[size]; i++) {
         require(totalParcelCounts[world_][size] < foundationParcelsPerWorld[world_][size], "Exceeds foundation parcels count");
         uint256 parcelId = totalParcelCounts[world_][size];
-        (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
+        (uint256 world, uint256 parcel, uint256 size) = parseParcelId(parcelId);
         require(world == world_, "Parcel must be from this world");
         emit ParcelBought(parcelId, 0, 0, 0);
-        _deliverParcel(recipient, parcelId, world, district, parcel, size);
+        _deliverParcel(recipient, parcelId, world, parcel, size);
       }
     }
   }
@@ -229,13 +228,13 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
       for(uint256 i = 0; i < amounts[size]; i++) {
         require(totalParcelCounts[world_][size] < maxParcelsPerWorld[world_][size], "Exceeds foundation parcels count");
         uint256 parcelId = totalParcelCounts[world_][size];
-        (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
+        (uint256 world, uint256 parcel, uint256 size) = parseParcelId(parcelId);
         require(world == world_, "Parcel must be from this world");
 
         uint256 price = size.mul(size);
         totalPrice = totalPrice.add(price);
         emit ParcelBought(parcelId, price, 0, 0);
-        _deliverParcel(recipient, parcelId, world, district, parcel, size);
+        _deliverParcel(recipient, parcelId, world, parcel, size);
       }
     }
     // take payment in claims
@@ -254,14 +253,14 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
       for(uint256 i = 0; i < amounts[size]; i++) {
         require(totalParcelCounts[world_][size] < maxParcelsPerWorld[world_][size], "Exceeds foundation parcels count");
         uint256 parcelId = totalParcelCounts[world_][size];
-        (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
+        (uint256 world, uint256 parcel, uint256 size) = parseParcelId(parcelId);
         require(world == world_, "Parcel must be from this world");
 
         uint256 price = priceInGenesis.mul(size).mul(size);
         totalPrice = totalPrice.add(price);
         emit ParcelBought(parcelId, 0, price, 0);
         // deliver the parcel
-        _deliverParcel(recipient, parcelId, world, district, parcel, size);
+        _deliverParcel(recipient, parcelId, world, parcel, size);
       }
     }
 
@@ -283,14 +282,14 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
       for(uint256 i = 0; i < amounts[size]; i++) {
         require(totalParcelCounts[world_][size] < maxParcelsPerWorld[world_][size], "Exceeds foundation parcels count");
         uint256 parcelId = totalParcelCounts[world_][size];
-        (uint256 world, uint256 district, uint256 parcel, uint256 size) = parseParcelId(parcelId);
+        (uint256 world, uint256 parcel, uint256 size) = parseParcelId(parcelId);
         require(world == world_, "Parcel must be from this world");
 
         // need to get the parcel price
         uint256 price = priceInMatic.mul(size).mul(size);
         totalPrice = totalPrice.add(price);
         emit ParcelBought(parcelId, 0, 0, price);
-        _deliverParcel(recipient, parcelId, world, district, parcel, size);
+        _deliverParcel(recipient, parcelId, world, parcel, size);
       }
     }
     require(msg.value == totalPrice, "Price must match");
@@ -298,13 +297,12 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     require(sent, "Failed to send Ether");
   }
 
-  // parcels and districts are zero-based, so the 6x6 parcel in each district is parcel 0
-  // worlds are both 1-based, so district #0 and world #0 are invalid
-  function _deliverParcel(address recipient, uint256 parcelId_, uint256 world_, uint256 district_, uint256 parcel_, uint256 size_)
+  // parcels are zero-based, so the 6x6 parcel in each district is parcel 0
+  // worlds are both 1-based, world #0 are invalid
+  function _deliverParcel(address recipient, uint256 parcelId_, uint256 world_, uint256 parcel_, uint256 size_)
     internal
   {
-    // ensure parcel and district exists
-    require(district_ < 24, "invalid district"); // need to check whether the district exists somehow
+    // ensure parcel exists
     require(parcel_ < 113, "invalid parcel");
     // deliver the parcel
     _mint(recipient, parcelId_);
@@ -325,14 +323,13 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
   /*function deliverCrossChainParcel(
     uint256 world_,
-    uint256 district_,
     uint256 parcel_,
     uint256 building_,
     address recipient_,
     bool isOverride_
   ) public onlyOracle {
     require(parcel_ > 0, "parcel must be non-zero");
-    uint256 tokenId = encodeParcelId(world_, district_, parcel_);
+    uint256 tokenId = encodeParcelId(world_, parcel_);
     require(_owners(tokenId) = address(0), "must not be owned");
 
     // Set the token data and emit an event
@@ -366,7 +363,7 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
 
   function parseParcelId(uint256 parcelId_) 
     public pure 
-    returns(uint256 world, uint256 district, uint256 parcel, uint256 size) 
+    returns(uint256 world, uint256 parcel, uint256 size) 
   {
     world = parcelId_ / 100000;
     parcel = parcelId_ % 10000;
@@ -397,10 +394,10 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     public pure 
     returns(uint256 size, uint256 trait, uint256 building, uint256[3] memory attributes)
   {
-    (uint256 world, uint256 district, uint256 parcel, uint256 size_) = parseParcelId(parcelId_);
+    (uint256 world, uint256 parcel, uint256 size_) = parseParcelId(parcelId_);
     size = size_;
   // would be better to hash these seeds, so it’s not everything just in order
-    uint256 seed = world + district + parcel;
+    uint256 seed = world + parcel;
     uint256[3] memory traits = getWorldTraits(world);
 
     // Trait is 1 of the 3 for the world - this is pulled from the storage data of the world
