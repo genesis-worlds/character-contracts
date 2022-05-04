@@ -14,6 +14,7 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import "./interfaces/IGenesis.sol";
 import "./interfaces/IGAME_ERC20.sol";
@@ -58,6 +59,8 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   uint256[5] public priceUnitsByParcelSize = [1, 4, 8, 16, 32];
   mapping (uint256 => uint256[5]) private maxParcelsPerWorld;
   mapping (uint256 => uint256[5]) private foundationParcelsPerWorld;
+
+  bytes32 public merkleRoot;
 
   event SaleStart(uint256 world, uint256 claimStartTime, uint256 saleStartTime);
   event ParcelBought(uint256 parcelId, uint256 claimsPaid, uint256 genesisPaid, uint256 maticPaid);
@@ -184,6 +187,10 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     }
   }
 
+  function setMerkleRoot(bytes32 _root) external onlyAdmin {
+    merkleRoot = _root;
+  }
+
   /*function initializeCrossChainWorld(uint256 world_, uint256 numberOfDistricts_, bool isOverride_)
     public onlyOracle
   {
@@ -222,6 +229,32 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
   {
     require(presaleStartTimes[world_] > block.timestamp, "Presale has not started");
     address sender = _msgSender();
+    uint256 totalPrice = 0;
+    // need to get the parcel size and building size, and make sure they fit
+    for (uint256 size = 0; size < 5; size++) {
+      for(uint256 i = 0; i < amounts[size]; i++) {
+        require(totalParcelCounts[world_][size] < maxParcelsPerWorld[world_][size], "Exceeds foundation parcels count");
+        uint256 parcelId = totalParcelCounts[world_][size];
+        (uint256 world, uint256 parcel, uint256 size) = parseParcelId(parcelId);
+        require(world == world_, "Parcel must be from this world");
+
+        uint256 price = size.mul(size);
+        totalPrice = totalPrice.add(price);
+        emit ParcelBought(parcelId, price, 0, 0);
+        _deliverParcel(recipient, parcelId, world, parcel, size);
+      }
+    }
+    // take payment in claims
+    worldContract.safeTransferFrom(sender, deadAddress, world_, totalPrice, "");
+  }
+
+  // Parcels can be claimed with mining claims during the presale or regular sale
+  function buyWithAllowlist(address recipient, uint256 world_, uint256[5] calldata amounts, bytes32[] memory proof)
+    public
+  {
+    require(presaleStartTimes[world_] + 86400 > block.timestamp, "Presale has not started or not the 2nd 24 hours");
+    address sender = _msgSender();
+    require(verify(sender, proof), "not in allowlist");
     uint256 totalPrice = 0;
     // need to get the parcel size and building size, and make sure they fit
     for (uint256 size = 0; size < 5; size++) {
@@ -427,5 +460,10 @@ contract Character is ERC721Enumerable, AccessControl, ILocalContract {
     public view returns (uint256[5] memory)
   {
     return foundationParcelsPerWorld[world];
+  }
+
+  function verify(address user, bytes32[] memory merkleProof) public view returns (bool) {
+    bytes32 node = keccak256(abi.encode(user));
+    return MerkleProof.verify(merkleProof, merkleRoot, node);
   }
 }
