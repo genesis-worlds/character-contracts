@@ -12,16 +12,19 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC1155/IERC1155Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
 
 import "./interfaces/IGenesis.sol";
-import "./interfaces/IGAME_ERC20.sol";
-import "./interfaces/IUniswapV2Router02.sol";
-import "./interfaces/ILocalContract.sol";
+import "./interfaces/IMiningClaim.sol";
 
-contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlUpgradeable, ILocalContract {
+
+contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlUpgradeable {
+  uint256 public constant N_TRAITS = 6;
+
+  // Settings
+  // =========
+
   /// @notice Bonus land price
   uint256 public bonusLandPrice;
 
@@ -43,11 +46,23 @@ contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlU
   /// @notice purchaseActive
   bool public purchaseActive;
 
+  // Data
+  // =========
+
   /// @notice Genesis Receiver
   address public genesisReceiver;
 
   /// @notice Referrers
   mapping(address => address) public referrers;
+
+  /// @notice Land Datas
+  mapping(uint256 => uint256) public landDatas;
+
+  /// @notice Mining Claim
+  IMiningClaim private miningClaim;
+
+  /// @notice Next parcel id
+  mapping(uint256 => uint256) private nextParcelId;
 
   // The genesis contract address
   IGenesis private genesisContract;
@@ -55,7 +70,7 @@ contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlU
   // Events
   // =========
 
-  event LandData(uint256 landId, uint256 level, uint256 size, uint256 buildingId, uint256[5] traits);  
+  event LandData(uint256 landId, uint256 level, uint256 size, uint256 buildingId, uint256[N_TRAITS] traits);  
 
   // Modifiers
   // =========
@@ -142,19 +157,30 @@ contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlU
   //                                                          //
   //////////////////////////////////////////////////////////////
 
-  function claimLand(uint256 worldId, uint256 buyBonusLand) external {
-
+  function claimLand(uint256 worldId, bool buyBonusLand) external {
+    // mining claim // world id
+    miningClaim.spend(worldId, 1);
+    if (buyBonusLand) {
+      _takePayment(_msgSender(), bonusLandPrice);
+    }
+    _deliverLand(worldId, 4, 10);
   }
 
   function _deliverLand(uint256 worldId, uint256 size, uint256 level) internal {
     // initial triats
-    
+    uint256[N_TRAITS] memory initialTraits = _getStartingTraits();
+    nextParcelId[worldId] = nextParcelId[worldId] + 1;
+    uint256 parcelId = nextParcelId[worldId];
+    uint256 landId = _getLandId(worldId, parcelId);
+    _mint(_msgSender(), landId);
+    _storeLandData(worldId, parcelId, size, level, 1, initialTraits);
   }
 
-  function _storeLandData(uint256 world, uint256 parcelId, uint256 size, uint256 buildingId, uint256[5] traits) internal {
-    // encode/decode land details
-    // emit LandData
-  }
+  function _storeLandData(uint256 worldId, uint256 parcelId, uint256 size, uint256 level, uint256 buildingId, uint256[N_TRAITS] memory traits) internal {
+    uint256 landId = _getLandId(worldId, parcelId);
+    landDatas[landId] = _encodeLandData(worldId, parcelId, size, level, buildingId, traits);
+    emit LandData(landId, level, size, buildingId, traits);
+ }
 
   function _takePayment(address payer, uint256 amount) internal {
     address referrer = referrers[payer];
@@ -164,5 +190,17 @@ contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlU
       genesisContract.transferFrom(payer, referrer, referralAmount);
     }
     genesisContract.transferFrom(payer, genesisReceiver, amount);
-  }  
+  }
+
+  function _getLandId(uint256 worldId, uint256 parcelId) internal pure returns (uint256 landId) {
+    landId = (worldId << 128) | parcelId;
+  }
+
+  function _getStartingTraits() internal view returns (uint256[N_TRAITS] memory) {
+
+  }
+
+  function _encodeLandData(uint256 worldId, uint256 parcelId, uint256 size, uint256 level, uint256 buildingId, uint256[N_TRAITS] memory traits) internal view returns (uint256) {
+    // implementation
+  }
 }
