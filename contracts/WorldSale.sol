@@ -20,7 +20,7 @@ import "./interfaces/IMiningClaim.sol";
 
 
 contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlUpgradeable {
-  uint256 public constant N_TRAITS = 6;
+  uint256 public constant N_TRAITS = 5;
 
   // Settings
   // =========
@@ -55,14 +55,17 @@ contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlU
   /// @notice Referrers
   mapping(address => address) public referrers;
 
-  /// @notice Land Datas
-  mapping(uint256 => uint256) public landDatas;
-
   /// @notice Mining Claim
   IMiningClaim private miningClaim;
 
   /// @notice Next parcel id
   mapping(uint256 => uint256) private nextParcelId;
+
+  /// @notice Land Datas
+  mapping(uint256 => uint256) public landDatas;
+
+  /// @notice A, B, C
+  mapping(uint256 => uint256) public worldTraits;
 
   // The genesis contract address
   IGenesis private genesisContract;
@@ -151,6 +154,29 @@ contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlU
     genesisReceiver = receiver_;
   }
 
+  function setWorldTraits(uint256 worldId, uint256 a, uint256 b, uint256 c)
+    external onlyAdmin
+  {
+    require(1 <= a && a <= 7, "invliad trait");
+    require(1 <= b && b <= 7, "invliad trait");
+    require(1 <= c && c <= 7, "invliad trait");
+    worldTraits[worldId] = a | (b << 4) | (c << 8);
+  }
+
+  //////////////////////////////////////////////////////////////
+  //                                                          //
+  //                         Viewer                           //
+  //                                                          //
+  //////////////////////////////////////////////////////////////
+
+  function getWorldTraits(uint256 worldId) public view returns (uint256 a, uint256 b, uint256 c)
+  {
+    uint256 worldTrait = worldTraits[worldId];
+    a = worldTrait % 16;
+    b = (worldTrait >> 4) % 16;
+    c = (worldTrait >> 8) % 16;
+  }
+
   //////////////////////////////////////////////////////////////
   //                                                          //
   //                         Purchase                         //
@@ -164,6 +190,20 @@ contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlU
       _takePayment(_msgSender(), bonusLandPrice);
     }
     _deliverLand(worldId, 4, 10);
+  }
+
+  function _processMessageFromRoot(uint256 stateId, address sender, bytes memory data) internal virtual {
+    address buyer;
+    address referrer;
+    uint256 worldId;
+    uint256 size;
+    if (referrers[sender] == address(0)) {
+      referrers[sender] = referrer;
+    }
+    _deliverLand(worldId, size, 1);
+    if (size >= 2) {
+      _deliverLand(worldId, size, 1);
+    }
   }
 
   function _deliverLand(uint256 worldId, uint256 size, uint256 level) internal {
@@ -197,10 +237,51 @@ contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlU
   }
 
   function _getStartingTraits() internal view returns (uint256[N_TRAITS] memory) {
-
   }
 
   function _encodeLandData(uint256 worldId, uint256 parcelId, uint256 size, uint256 level, uint256 buildingId, uint256[N_TRAITS] memory traits) internal view returns (uint256) {
-    // implementation
+    uint256 premiumStatus = 1;
+    uint256 resource = 1;
+    uint256 x;
+    uint256 y;
+    uint256 output;
+    // world Id; 32 bit
+    output = output | uint32(worldId);
+    // parcel Id; 32 bit
+    output = (output << 32) | uint32(parcelId);
+
+    // size; 8 bit
+    output = (output << 8) | uint8(size);
+    // level; 8 bit
+    output = (output << 8) | uint8(level);
+    // building; 8 bit
+    output = (output << 8) | uint8(buildingId);
+    // x; 8 bit
+    output = (output << 8) | uint16(x);
+    // y; 8 bit
+    output = (output << 8) | uint16(y);
+
+    (uint256 a, uint256 b, uint256 c) = getWorldTraits(worldId);
+
+    // premiumStatus; 4 bit
+    output = (output << 4) | (premiumStatus % 16);
+    // bascitrait; 4 bit
+    output = (output << 4) | (traits[0] % 16);
+    // resource; 4 bit
+    output = (output << 4) | (resource % 16);
+    // trait; 4 bit
+    output = (output << 4) | (traits[1] % 16);
+    // worldA; 4 bit
+    output = (output << 4) | (a % 16);
+    // trait; 4 bit
+    output = (output << 4) | (traits[2] % 16);
+    // worldB; 4 bit
+    output = (output << 4) | (b % 16);
+    // trait; 4 bit
+    output = (output << 4) | (traits[3] % 16);
+    // worldC; 4 bit
+    output = (output << 4) | (c % 16);
+    // trait; 4 bit
+    output = (output << 4) | (traits[4] % 16);
   }
 }
