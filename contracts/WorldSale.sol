@@ -14,12 +14,14 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+import "@maticnetwork/fx-portal/contracts/tunnel/FxBaseChildTunnel.sol";
+import "./Encode.sol";
 
 import "./interfaces/IGenesis.sol";
 import "./interfaces/IMiningClaim.sol";
 
 
-contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlUpgradeable {
+contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlUpgradeable, FxBaseChildTunnel {
   uint256 public constant N_TRAITS = 5;
 
   // Settings
@@ -83,12 +85,15 @@ contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlU
     _;
   }
 
-  function initialize(address genesisContract_) external initializer
+  constructor() FxBaseChildTunnel(address(0)) {}
+
+  function initialize(address genesisContract_, address fxChild_) external initializer
   {
     __ERC721Enumerable_init();
     __AccessControl_init();
     genesisContract = IGenesis(genesisContract_);
     genesisReceiver = _msgSender();
+    fxChild = fxChild_;
 
     _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
   }
@@ -192,11 +197,8 @@ contract WorldSale is Initializable, ERC721EnumerableUpgradeable, AccessControlU
     _deliverLand(worldId, 4, 10);
   }
 
-  function _processMessageFromRoot(uint256 stateId, address sender, bytes memory data) internal virtual {
-    address buyer;
-    address referrer;
-    uint256 worldId;
-    uint256 size;
+  function _processMessageFromRoot(uint256 stateId, address sender, bytes memory data) internal override virtual validateSender(sender) {
+    (address buyer, address referrer, uint256 worldId, uint256 size) = Encode.decode(data);
     if (referrers[sender] == address(0)) {
       referrers[sender] = referrer;
     }
